@@ -12,6 +12,7 @@ from config import settings
 from db.pool import create_db_pool, close_db_pool
 from db.health import get_health_checks
 from db.migrations import check_and_apply_migrations
+from api.ingest import router as ingest_router
 
 
 # Initialize OpenTelemetry
@@ -36,6 +37,9 @@ app = FastAPI(lifespan=lifespan, title="NeuroFlow API")
 # Add OpenTelemetry middleware
 app.add_middleware(OpenTelemetryMiddleware)
 FastAPIInstrumentor.instrument_app(app)
+
+# Include routers
+app.include_router(ingest_router)
 
 
 @app.get("/health")
