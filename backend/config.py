@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
 
+    # LLM API Keys
+    openai_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
+
     class Config:
         env_file = "../.env"
         env_file_encoding = "utf-8"
