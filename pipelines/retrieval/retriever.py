@@ -1,0 +1,183 @@
+import asyncio
+import json
+from typing import Any, List
+import asyncpg
+from .base import RetrievalResult, ProcessedQuery
+from .fusion import reciprocal_rank_fusion
+from .query_processor import QueryProcessor
+from .reranker import Reranker
+from backend.providers import NeuroFlowClient
+from backend.db.pool import get_db_pool
+from backend.config import settings
+
+
+class Retriever:
+    def __init__(
+        self,
+        db_pool: asyncpg.Pool | None = None,
+        client: NeuroFlowClient | None = None,
+        query_processor: QueryProcessor | None = None,
+        reranker: Reranker | None = None
+    ):
+        self.db_pool = db_pool
+        self.client = client or NeuroFlowClient()
+        self.query_processor = query_processor or QueryProcessor(self.client)
+        self.reranker = reranker or Reranker(self.client)
+
+    async def _get_db_pool(self):
+        if self.db_pool is None:
+            self.db_pool = await get_db_pool()
+        return self.db_pool
+
+    async def retrieve(
+        self,
+        query: str,
+        k: int = 20,
+        use_rerank: bool = True
+    ) -> List[RetrievalResult]:
+        # Step 1: Process query
+        processed = await self.query_processor.process(query)
+
+        # Step 2: Run parallel retrievals
+        dense_results, sparse_results, metadata_results = await asyncio.gather(
+            self._dense_retrieval(processed, k),
+            self._sparse_retrieval(processed, k),
+            self._metadata_retrieval(processed, k)
+        )
+
+        # Step 3: Fuse results
+        all_results = [dense_results, sparse_results, metadata_results]
+        # Filter out empty lists
+        all_results = [r for r in all_results if len(r) > 0]
+        fused = reciprocal_rank_fusion(all_results)
+
+        # Step 4: Rerank
+        if use_rerank:
+            fused = await self.reranker.rerank(processed.original, fused, top_k=40)
+
+        # Take top k
+        return fused[:k]
+
+    async def _dense_retrieval(
+        self,
+        processed: ProcessedQuery,
+        k: int
+    ) -> List[RetrievalResult]:
+        pool = await self._get_db_pool()
+        # Get embedding for original query
+        all_queries = [processed.original] + processed.expanded
+        # Embed all queries in batch
+        embeddings = await self.client.embed(all_queries)
+
+        all_chunks: set[str] = set()
+        results: List[RetrievalResult] = []
+
+        async with pool.acquire() as conn:
+            for idx, embedding in enumerate(embeddings):
+                # Search pgvector
+                records = await conn.fetch(
+                    """
+                    SELECT
+                        id AS chunk_id,
+                        document_id,
+                        content,
+                        metadata,
+                        (embedding <=> $1) AS distance
+                    FROM chunks
+                    ORDER BY embedding <=> $1
+                    LIMIT $2
+                    """,
+                    embedding,
+                    k
+                )
+                for rank, rec in enumerate(records, 1):
+                    chunk_id = rec["chunk_id"]
+                    if chunk_id not in all_chunks:
+                        all_chunks.add(chunk_id)
+                        results.append(RetrievalResult(
+                            chunk_id=chunk_id,
+                            document_id=rec["document_id"],
+                            content=rec["content"],
+                            metadata=rec["metadata"] or {},
+                            score=1.0 / (1 + rec["distance"]),
+                            rank=rank
+                        ))
+
+        # Sort by score and take top k
+        results.sort(key=lambda x: x.score, reverse=True)
+        return results[:k]
+
+    async def _sparse_retrieval(
+        self,
+        processed: ProcessedQuery,
+        k: int
+    ) -> List[RetrievalResult]:
+        pool = await self._get_db_pool()
+        async with pool.acquire() as conn:
+            records = await conn.fetch(
+                """
+                SELECT
+                    id AS chunk_id,
+                    document_id,
+                    content,
+                    metadata,
+                    ts_rank_cd(to_tsvector('english', content), plainto_tsquery('english', $1)) AS score
+                FROM chunks
+                WHERE to_tsvector('english', content) @@ plainto_tsquery('english', $1)
+                ORDER BY score DESC
+                LIMIT $2
+                """,
+                processed.original,
+                k
+            )
+            results = []
+            for rank, rec in enumerate(records, 1):
+                results.append(RetrievalResult(
+                    chunk_id=rec["chunk_id"],
+                    document_id=rec["document_id"],
+                    content=rec["content"],
+                    metadata=rec["metadata"] or {},
+                    score=rec["score"],
+                    rank=rank
+                ))
+            return results
+
+    async def _metadata_retrieval(
+        self,
+        processed: ProcessedQuery,
+        k: int
+    ) -> List[RetrievalResult]:
+        if not processed.metadata_filter:
+            return []
+        pool = await self._get_db_pool()
+        async with pool.acquire() as conn:
+            # First get query embedding
+            query_embedding = (await self.client.embed([processed.original]))[0]
+            records = await conn.fetch(
+                """
+                SELECT
+                    id AS chunk_id,
+                    document_id,
+                    content,
+                    metadata,
+                    (embedding <=> $1) AS distance
+                FROM chunks
+                WHERE metadata @> $2::jsonb
+                ORDER BY embedding <=> $1
+                LIMIT $3
+                """,
+                query_embedding,
+                json.dumps(processed.metadata_filter),
+                k
+            )
+            results = []
+            for rank, rec in enumerate(records, 1):
+                results.append(RetrievalResult(
+                    chunk_id=rec["chunk_id"],
+                    document_id=rec["document_id"],
+                    content=rec["content"],
+                    metadata=rec["metadata"] or {},
+                    score=1.0 / (1 + rec["distance"]),
+                    rank=rank
+                ))
+            return results
