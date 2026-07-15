@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from typing import AsyncGenerator, List, Dict, Any, Optional
 import asyncpg
 import redis.asyncio as redis
+from arq import create_pool
+from arq.connections import RedisSettings
 from pipelines.retrieval import (
     Retriever, QueryProcessor, ContextAssembler, ContextWindow, ProcessedQuery
 )
@@ -91,8 +93,10 @@ class Generator:
 
     async def _enqueue_evaluation_job(self, run_id: uuid.UUID):
         try:
-            redis_client = await self._get_redis_client()
-            await redis_client.lpush("evaluation_jobs", str(run_id))
+            # Enqueue job using arq
+            redis_pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+            await redis_pool.enqueue_job("process_evaluation_job", str(run_id))
+            await redis_pool.close()
         except Exception:
             # Don't fail the whole request if evaluation enqueue fails
             pass

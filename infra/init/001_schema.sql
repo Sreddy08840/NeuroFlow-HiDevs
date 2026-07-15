@@ -49,6 +49,7 @@ CREATE TABLE pipeline_runs (
   output_tokens INT,
   model_used TEXT,
   status VARCHAR(20) NOT NULL DEFAULT 'running',
+  metadata JSONB NOT NULL DEFAULT '{}',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

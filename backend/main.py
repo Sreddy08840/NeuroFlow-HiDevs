@@ -13,6 +13,8 @@ from db.pool import create_db_pool, close_db_pool
 from db.health import get_health_checks
 from db.migrations import check_and_apply_migrations
 from api.ingest import router as ingest_router
+from api.query import router as query_router
+from api.runs import router as runs_router
 
 
 # Initialize OpenTelemetry
@@ -40,6 +42,8 @@ FastAPIInstrumentor.instrument_app(app)
 
 # Include routers
 app.include_router(ingest_router)
+app.include_router(query_router)
+app.include_router(runs_router)
 
 
 @app.get("/health")
