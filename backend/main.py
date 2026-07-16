@@ -18,6 +18,8 @@ from api.runs import router as runs_router
 from api.pipelines import router as pipelines_router
 from api.compare import router as compare_router
 from api.finetune import router as finetune_router
+from resilience.circuit_breaker import CircuitBreaker
+from resilience.backpressure import BackpressureManager
 
 
 # Initialize OpenTelemetry
@@ -54,13 +56,41 @@ app.include_router(finetune_router)
 
 @app.get("/health")
 async def health_check():
-    postgres_ok, redis_ok, mlflow_ok = await get_health_checks()
+    postgres_check, redis_check, mlflow_check = await get_health_checks()
+    
+    # Circuit breaker status
+    circuit_breakers = {}
+    for provider in ["openai", "anthropic"]:
+        cb = CircuitBreaker(provider)
+        circuit_breakers[provider] = await cb.get_status()
+    
+    # Backpressure (queue depth)
+    backpressure = BackpressureManager()
+    queue_depth = await backpressure.get_queue_depth()
+    
+    # Determine overall status
+    critical = (postgres_check["status"] == "critical" or 
+                redis_check["status"] == "critical")
+    degraded = (mlflow_check["status"] == "degraded" or 
+                any(cb["state"] in ["open", "half-open"] 
+                    for cb in circuit_breakers.values()))
+    
+    if critical:
+        overall_status = "critical"
+    elif degraded:
+        overall_status = "degraded"
+    else:
+        overall_status = "ok"
+    
     return {
-        "status": "ok" if all([postgres_ok, redis_ok, mlflow_ok]) else "error",
+        "status": overall_status,
         "checks": {
-            "postgres": postgres_ok,
-            "redis": redis_ok,
-            "mlflow": mlflow_ok
+            "postgres": postgres_check,
+            "redis": redis_check,
+            "mlflow": mlflow_check,
+            "circuit_breakers": circuit_breakers,
+            "queue_depth": queue_depth,
+            "worker_count": 2  # Placeholder, in real setup we'd track workers
         }
     }
 

@@ -1,8 +1,12 @@
+import asyncio
 import time
 from typing import AsyncGenerator
 from anthropic import AsyncAnthropic
 from .base import BaseLLMProvider, ChatMessage, GenerationResult
 from config import settings
+from resilience.circuit_breaker import CircuitBreaker
+from resilience.timeout_manager import TimeoutManager
+from resilience.rate_limiter import RateLimiter
 
 
 class AnthropicProvider(BaseLLMProvider):
@@ -21,8 +25,16 @@ class AnthropicProvider(BaseLLMProvider):
     def __init__(self, api_key: str = None, model: str = "claude-3-haiku-20240307"):
         self.client = AsyncAnthropic(api_key=api_key or settings.anthropic_api_key)
         self.model = model
+        self.circuit_breaker = CircuitBreaker("anthropic")
+        self.timeout_manager = TimeoutManager()
+        self.rate_limiter = RateLimiter()
 
     async def complete(self, messages: list[ChatMessage], **kwargs) -> GenerationResult:
+        # Check rate limits
+        allowed, wait = await self.rate_limiter.check_provider_rate_limit("anthropic")
+        if not allowed:
+            await asyncio.sleep(wait)
+        
         start_time = time.time()
         system_message = None
         anthropic_messages = []
@@ -43,7 +55,11 @@ class AnthropicProvider(BaseLLMProvider):
         if system_message:
             call_kwargs["system"] = system_message
 
-        completion = await self.client.messages.create(**call_kwargs)
+        async with self.circuit_breaker:
+            completion = await self.timeout_manager.execute_with_timeout(
+                "chat_completion",
+                self.client.messages.create(**call_kwargs)
+            )
         end_time = time.time()
         latency_ms = (end_time - start_time) * 1000
 
@@ -62,6 +78,11 @@ class AnthropicProvider(BaseLLMProvider):
         )
 
     async def stream(self, messages: list[ChatMessage], **kwargs) -> AsyncGenerator[str, None]:
+        # Check rate limits
+        allowed, wait = await self.rate_limiter.check_provider_rate_limit("anthropic")
+        if not allowed:
+            await asyncio.sleep(wait)
+        
         system_message = None
         anthropic_messages = []
 
@@ -81,7 +102,11 @@ class AnthropicProvider(BaseLLMProvider):
         if system_message:
             call_kwargs["system"] = system_message
 
-        async with self.client.messages.stream(**call_kwargs) as stream:
+        async with self.circuit_breaker:
+            async with self.timeout_manager.execute_with_timeout(
+                "chat_completion",
+                self.client.messages.stream(**call_kwargs)
+            ) as stream:
             async for text in stream.text_stream:
                 yield text
 

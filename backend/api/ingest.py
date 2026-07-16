@@ -1,7 +1,8 @@
 import hashlib
 import os
 import uuid
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from arq import create_pool
 from arq.connections import RedisSettings
@@ -9,6 +10,8 @@ from asyncpg.pool import Pool
 from backend.db.pool import get_db_pool
 from pipelines.ingestion.pipeline import ingest_document_task
 from backend.config import settings
+from backend.resilience.backpressure import BackpressureManager
+from backend.resilience.rate_limiter import RateLimiter
 
 
 router = APIRouter(prefix="", tags=["ingest"])
@@ -46,11 +49,35 @@ class IngestURLRequest(BaseModel):
 
 @router.post("/ingest")
 async def ingest(
+    request: Request,
     file: UploadFile = File(None),
     url_request: IngestURLRequest = None,
     db_pool: Pool = Depends(get_db_pool),
     arq_pool = Depends(get_arq_pool)
 ):
+    # Endpoint rate limiting: 10 req/hour/ip
+    client_ip = request.client.host if request.client else "unknown"
+    rate_limiter = RateLimiter()
+    allowed, wait = await rate_limiter.check_endpoint_rate_limit("ingest", client_ip, 10, 3600)
+    if not allowed:
+        return JSONResponse(
+            status_code=429,
+            headers={"Retry-After": str(int(wait))},
+            content={"detail": "Too Many Requests"}
+        )
+    
+    # Backpressure check
+    backpressure = BackpressureManager()
+    status, extra = await backpressure.check_backpressure()
+    if status == "unavailable":
+        return JSONResponse(
+            status_code=503,
+            headers={"Retry-After": "30"},
+            content=extra
+        )
+    elif status == "warning":
+        # Proceed but add warning to response
+        pass
     if file:
         # File ingest
         file_bytes = await file.read()
@@ -95,7 +122,10 @@ async def ingest(
             file_path=file_path
         )
         
-        return {"document_id": document_id, "status": "queued", "duplicate": False}
+        response = {"document_id": document_id, "status": "queued", "duplicate": False}
+        if status == "warning":
+            response.update(extra)
+        return response
     elif url_request and url_request.url:
         # URL ingest
         content_hash = hashlib.sha256(url_request.url.encode()).hexdigest()
@@ -129,7 +159,10 @@ async def ingest(
             url=url_request.url
         )
         
-        return {"document_id": document_id, "status": "queued", "duplicate": False}
+        response = {"document_id": document_id, "status": "queued", "duplicate": False}
+        if status == "warning":
+            response.update(extra)
+        return response
     else:
         raise HTTPException(status_code=400, detail="Must provide either file or url")
 
