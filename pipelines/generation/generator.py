@@ -1,6 +1,7 @@
 import asyncio
 import time
 import uuid
+import json
 from dataclasses import dataclass
 from typing import AsyncGenerator, List, Dict, Any, Optional
 import asyncpg
@@ -14,6 +15,7 @@ from pipelines.generation import PromptBuilder, CitationParser, Citation
 from backend.providers import NeuroFlowClient, ChatMessage
 from backend.db.pool import get_db_pool
 from backend.config import settings
+from backend.models import PipelineConfig
 
 
 @dataclass
@@ -51,9 +53,26 @@ class Generator:
             self.redis_client = redis.from_url(settings.redis_url)
         return self.redis_client
 
+    async def _get_pipeline_config(self, pipeline_id: uuid.UUID) -> tuple[PipelineConfig, uuid.UUID]:
+        """Load current pipeline config and return pipeline_version_id."""
+        pool = await self._get_db_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT pv.id, pv.config
+                FROM pipelines p
+                JOIN pipeline_versions pv ON p.id = pv.pipeline_id AND p.current_version = pv.version
+                WHERE p.id = $1
+            """, pipeline_id)
+            if not row:
+                raise ValueError("Pipeline not found")
+            config_dict = json.loads(row["config"])
+            config = PipelineConfig(**config_dict)
+            return config, row["id"]
+
     async def _create_pipeline_run(
         self,
         pipeline_id: uuid.UUID,
+        pipeline_version_id: uuid.UUID,
         query: str,
         retrieved_chunk_ids: List[str]
     ) -> uuid.UUID:
@@ -62,9 +81,9 @@ class Generator:
         async with pool.acquire() as conn:
             await conn.execute("""
                 INSERT INTO pipeline_runs (
-                    id, pipeline_id, query, retrieved_chunk_ids, status
-                ) VALUES ($1, $2, $3, $4, 'running')
-            """, run_id, pipeline_id, query, retrieved_chunk_ids)
+                    id, pipeline_id, pipeline_version_id, query, retrieved_chunk_ids, status
+                ) VALUES ($1, $2, $3, $4, $5, 'running')
+            """, run_id, pipeline_id, pipeline_version_id, query, retrieved_chunk_ids)
         return run_id
 
     async def _update_pipeline_run(
@@ -75,6 +94,8 @@ class Generator:
         output_tokens: int,
         model_used: str,
         latency_ms: int,
+        retrieval_latency_ms: int,
+        generation_latency_ms: int,
         metadata: Optional[Dict[str, Any]] = None
     ):
         pool = await self._get_db_pool()
@@ -86,10 +107,13 @@ class Generator:
                     output_tokens = $3,
                     model_used = $4,
                     latency_ms = $5,
-                    metadata = $6,
+                    retrieval_latency_ms = $6,
+                    generation_latency_ms = $7,
+                    metadata = $8,
                     status = 'complete'
-                WHERE id = $7
-            """, generation, input_tokens, output_tokens, model_used, latency_ms, metadata or {}, run_id)
+                WHERE id = $9
+            """, generation, input_tokens, output_tokens, model_used, latency_ms, 
+                retrieval_latency_ms, generation_latency_ms, metadata or {}, run_id)
 
     async def _enqueue_evaluation_job(self, run_id: uuid.UUID):
         try:
@@ -109,17 +133,29 @@ class Generator:
     ) -> AsyncGenerator[Dict[str, Any], None]:
         start_time = time.time()
 
+        # Load pipeline config
+        config, pipeline_version_id = await self._get_pipeline_config(pipeline_id)
+
         # Step 1: Retrieval
+        retrieval_start = time.time()
         yield {"type": "retrieval_start"}
         processed_query = await self.retriever.query_processor.process(query)
-        retrieval_results = await self.retriever.retrieve(query, k=20)
-        context_assembler = ContextAssembler()
+        retrieval_results = await self.retriever.retrieve(
+            query, 
+            k=config.retrieval.top_k_after_rerank,
+            dense_k=config.retrieval.dense_k,
+            sparse_k=config.retrieval.sparse_k,
+            use_rerank=config.retrieval.reranker != "none"
+        )
+        retrieval_latency_ms = int((time.time() - retrieval_start) * 1000)
+        
+        context_assembler = ContextAssembler(max_tokens=config.generation.max_context_tokens)
         context_window = context_assembler.assemble(retrieval_results)
         retrieved_chunk_ids = [r.chunk_id for r in retrieval_results]
 
         # Step 2: Create pipeline run first so we can yield run_id early
         run_id = await self._create_pipeline_run(
-            pipeline_id, query, retrieved_chunk_ids
+            pipeline_id, pipeline_version_id, query, retrieved_chunk_ids
         )
         yield {"type": "run_id", "run_id": str(run_id)}
 
@@ -133,6 +169,7 @@ class Generator:
         }
 
         # Step 3: Build prompt and generate
+        generation_start = time.time()
         assembled_prompt = self.prompt_builder.build(
             query, context_window, processed_query, use_chain_of_thought
         )
@@ -162,6 +199,8 @@ class Generator:
                     yield {"type": "token", "delta": clean_delta}
                     full_response += clean_delta
 
+        generation_latency_ms = int((time.time() - generation_start) * 1000)
+
         # Step 4: Parse citations
         citations = self.citation_parser.parse(full_response, context_window)
 
@@ -174,6 +213,8 @@ class Generator:
             output_tokens,
             model_used,
             latency_ms,
+            retrieval_latency_ms,
+            generation_latency_ms,
             metadata={"thinking": thinking} if thinking else None
         )
 
@@ -204,23 +245,37 @@ class Generator:
     ) -> GenerationResult:
         start_time = time.time()
 
+        # Load pipeline config
+        config, pipeline_version_id = await self._get_pipeline_config(pipeline_id)
+
         # Step 1: Retrieval
+        retrieval_start = time.time()
         processed_query = await self.retriever.query_processor.process(query)
-        retrieval_results = await self.retriever.retrieve(query, k=20)
-        context_assembler = ContextAssembler()
+        retrieval_results = await self.retriever.retrieve(
+            query, 
+            k=config.retrieval.top_k_after_rerank,
+            dense_k=config.retrieval.dense_k,
+            sparse_k=config.retrieval.sparse_k,
+            use_rerank=config.retrieval.reranker != "none"
+        )
+        retrieval_latency_ms = int((time.time() - retrieval_start) * 1000)
+        
+        context_assembler = ContextAssembler(max_tokens=config.generation.max_context_tokens)
         context_window = context_assembler.assemble(retrieval_results)
         retrieved_chunk_ids = [r.chunk_id for r in retrieval_results]
 
         # Step 2: Create pipeline run
         run_id = await self._create_pipeline_run(
-            pipeline_id, query, retrieved_chunk_ids
+            pipeline_id, pipeline_version_id, query, retrieved_chunk_ids
         )
 
         # Step 3: Build prompt and generate
+        generation_start = time.time()
         assembled_prompt = self.prompt_builder.build(
             query, context_window, processed_query, use_chain_of_thought
         )
         response = await self.client.chat(assembled_prompt.messages)
+        generation_latency_ms = int((time.time() - generation_start) * 1000)
 
         full_response = response.content
         thinking = ""
@@ -244,6 +299,8 @@ class Generator:
             response.output_tokens or 0,
             response.model or "",
             latency_ms,
+            retrieval_latency_ms,
+            generation_latency_ms,
             metadata={"thinking": thinking} if thinking else None
         )
 

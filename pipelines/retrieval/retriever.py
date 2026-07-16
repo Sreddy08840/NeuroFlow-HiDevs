@@ -33,16 +33,18 @@ class Retriever:
         self,
         query: str,
         k: int = 20,
-        use_rerank: bool = True
+        use_rerank: bool = True,
+        dense_k: int = 30,
+        sparse_k: int = 20
     ) -> List[RetrievalResult]:
         # Step 1: Process query
         processed = await self.query_processor.process(query)
 
         # Step 2: Run parallel retrievals
         dense_results, sparse_results, metadata_results = await asyncio.gather(
-            self._dense_retrieval(processed, k),
-            self._sparse_retrieval(processed, k),
-            self._metadata_retrieval(processed, k)
+            self._dense_retrieval(processed, dense_k),
+            self._sparse_retrieval(processed, sparse_k),
+            self._metadata_retrieval(processed, sparse_k)
         )
 
         # Step 3: Fuse results
