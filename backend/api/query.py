@@ -2,11 +2,12 @@ import asyncio
 import json
 import uuid
 from typing import Dict, Any
-from fastapi import APIRouter, HTTPException, BackgroundTasks
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Request
+from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse, ServerSentEvent
 from pipelines.generation import Generator
+from backend.resilience.rate_limiter import RateLimiter
 
 
 router = APIRouter(prefix="/query", tags=["query"])
@@ -29,7 +30,17 @@ class QueryResponse(BaseModel):
 
 
 @router.post("")
-async def create_query(request: QueryRequest, background_tasks: BackgroundTasks):
+async def create_query(req: Request, request: QueryRequest, background_tasks: BackgroundTasks):
+    # Endpoint rate limiting: 60 req/min per IP
+    client_ip = req.client.host if req.client else "unknown"
+    rate_limiter = RateLimiter()
+    allowed, wait = await rate_limiter.check_endpoint_rate_limit("query", client_ip, 60, 60)
+    if not allowed:
+        return JSONResponse(
+            status_code=429,
+            headers={"Retry-After": str(int(wait))},
+            content={"detail": "Too Many Requests"}
+        )
     if request.stream:
         # For streaming, create queue first
         queue = asyncio.Queue()

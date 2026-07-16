@@ -6,6 +6,9 @@ from openai.types.chat import ChatCompletionChunk
 from openai import RateLimitError
 from .base import BaseLLMProvider, ChatMessage, GenerationResult
 from config import settings
+from resilience.circuit_breaker import CircuitBreaker
+from resilience.timeout_manager import TimeoutManager
+from resilience.rate_limiter import RateLimiter
 
 
 class OpenAIProvider(BaseLLMProvider):
@@ -25,6 +28,9 @@ class OpenAIProvider(BaseLLMProvider):
         self.embedding_model = embedding_model
         self.max_retries = 3
         self.initial_backoff = 1  # seconds
+        self.circuit_breaker = CircuitBreaker("openai")
+        self.timeout_manager = TimeoutManager()
+        self.rate_limiter = RateLimiter()
 
     async def _retry_with_exponential_backoff(self, func, *args, **kwargs):
         retries = 0
@@ -40,6 +46,11 @@ class OpenAIProvider(BaseLLMProvider):
                 await asyncio.sleep(wait_time)
 
     async def complete(self, messages: list[ChatMessage], **kwargs) -> GenerationResult:
+        # Check rate limits
+        allowed, wait = await self.rate_limiter.check_provider_rate_limit("openai")
+        if not allowed:
+            await asyncio.sleep(wait)
+        
         start_time = time.time()
         openai_messages = [
             {"role": msg.role, "content": msg.content}
@@ -53,7 +64,11 @@ class OpenAIProvider(BaseLLMProvider):
                 **kwargs
             )
 
-        completion = await self._retry_with_exponential_backoff(_call)
+        async with self.circuit_breaker:
+            completion = await self.timeout_manager.execute_with_timeout(
+                "chat_completion",
+                self._retry_with_exponential_backoff(_call)
+            )
         end_time = time.time()
         latency_ms = (end_time - start_time) * 1000
 
@@ -72,6 +87,11 @@ class OpenAIProvider(BaseLLMProvider):
         )
 
     async def stream(self, messages: list[ChatMessage], **kwargs) -> AsyncGenerator[str, None]:
+        # Check rate limits
+        allowed, wait = await self.rate_limiter.check_provider_rate_limit("openai")
+        if not allowed:
+            await asyncio.sleep(wait)
+        
         openai_messages = [
             {"role": msg.role, "content": msg.content}
             for msg in messages
@@ -85,12 +105,21 @@ class OpenAIProvider(BaseLLMProvider):
                 **kwargs
             )
 
-        stream = await self._retry_with_exponential_backoff(_call)
+        async with self.circuit_breaker:
+            stream = await self.timeout_manager.execute_with_timeout(
+                "chat_completion",
+                self._retry_with_exponential_backoff(_call)
+            )
         async for chunk in stream:  # type: ChatCompletionChunk
             if chunk.choices and chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
+        # Check rate limits
+        allowed, wait = await self.rate_limiter.check_provider_rate_limit("openai")
+        if not allowed:
+            await asyncio.sleep(wait)
+        
         embeddings = []
         batch_size = 100
         for i in range(0, len(texts), batch_size):
@@ -102,7 +131,11 @@ class OpenAIProvider(BaseLLMProvider):
                     input=batch
                 )
 
-            response = await self._retry_with_exponential_backoff(_call)
+            async with self.circuit_breaker:
+                response = await self.timeout_manager.execute_with_timeout(
+                    "embedding",
+                    self._retry_with_exponential_backoff(_call)
+                )
             batch_embeddings = [e.embedding for e in response.data]
             embeddings.extend(batch_embeddings)
         return embeddings
