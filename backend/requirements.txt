@@ -136,3 +136,4 @@ opentelemetry-sdk>=1.28.0
 opentelemetry-instrumentation-fastapi>=0.49b0
 opentelemetry-instrumentation-asgi>=0.49b0
 opentelemetry-exporter-otlp>=1.28.0
+prometheus-client>=0.20.0
