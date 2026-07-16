@@ -15,6 +15,8 @@ from db.migrations import check_and_apply_migrations
 from api.ingest import router as ingest_router
 from api.query import router as query_router
 from api.runs import router as runs_router
+from api.pipelines import router as pipelines_router
+from api.compare import router as compare_router
 
 
 # Initialize OpenTelemetry
@@ -44,6 +46,8 @@ FastAPIInstrumentor.instrument_app(app)
 app.include_router(ingest_router)
 app.include_router(query_router)
 app.include_router(runs_router)
+app.include_router(pipelines_router)
+app.include_router(compare_router)
 
 
 @app.get("/health")

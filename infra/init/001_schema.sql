@@ -34,17 +34,32 @@ CREATE INDEX ON chunks USING gin (to_tsvector('english', content));
 CREATE TABLE pipelines (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name TEXT UNIQUE NOT NULL,
+  description TEXT,
+  status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
+  current_version INT NOT NULL DEFAULT 1,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE pipeline_versions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  pipeline_id UUID NOT NULL REFERENCES pipelines(id) ON DELETE CASCADE,
+  version INT NOT NULL,
   config JSONB NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(pipeline_id, version)
 );
 
 CREATE TABLE pipeline_runs (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   pipeline_id UUID NOT NULL REFERENCES pipelines(id),
+  pipeline_version_id UUID NOT NULL REFERENCES pipeline_versions(id),
   query TEXT NOT NULL,
   retrieved_chunk_ids UUID[],
   generation TEXT,
   latency_ms INT,
+  retrieval_latency_ms INT,
+  generation_latency_ms INT,
   input_tokens INT,
   output_tokens INT,
   model_used TEXT,
