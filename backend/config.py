@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from typing import Optional
+from typing import Optional, Dict
 
 
 class Settings(BaseSettings):
@@ -27,6 +27,24 @@ class Settings(BaseSettings):
     # LLM API Keys
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
+
+    # JWT
+    jwt_secret_key: str = "test-secret-key-change-in-production"
+    jwt_algorithm: str = "HS256"
+    jwt_access_token_expire_minutes: int = 60
+
+    # Clients (demo)
+    # In production, store these securely (e.g., in a database with hashed secrets)
+    jwt_clients: Dict[str, Dict[str, str]] = {
+        "demo-client": {
+            "client_secret": "demo-secret",
+            "scopes": ["query", "ingest"]
+        },
+        "admin-client": {
+            "client_secret": "admin-secret",
+            "scopes": ["query", "ingest", "admin"]
+        }
+    }
 
     class Config:
         env_file = "../.env"

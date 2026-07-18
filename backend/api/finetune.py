@@ -1,9 +1,10 @@
 import uuid
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 from pipelines.finetuning import Extractor, JobManager
 from backend.config import settings
+from backend.api.auth import require_scope
 
 router = APIRouter(prefix="/finetune", tags=["finetune"])
 
@@ -23,7 +24,7 @@ async def run_job_polling(job_id: uuid.UUID, mlflow_run_id: str):
     await job_manager.poll_job(job_id, mlflow_run_id)
 
 
-@router.post("/jobs")
+@router.post("/jobs", dependencies=[Depends(require_scope("admin"))])
 async def create_job(request: CreateJobRequest, background_tasks: BackgroundTasks):
     """Create and submit a new fine-tuning job."""
     try:

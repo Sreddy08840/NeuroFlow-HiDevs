@@ -3,6 +3,7 @@ import time
 from typing import Optional, AsyncGenerator
 import redis.asyncio as redis
 from backend.config import settings
+from backend.monitoring.metrics import circuit_breaker_trips, active_circuit_breakers_open
 
 
 class CircuitOpenError(Exception):
@@ -49,12 +50,29 @@ class CircuitBreaker:
     async def _increment_failure(self):
         count = await self.redis_client.incr(self.failure_count_key)
         if count >= self.failure_threshold:
+            # Check if circuit was closed before (to avoid duplicate tripping)
+            old_state = await self._get_state()
+            if old_state in ("closed", "half-open"):
+                circuit_breaker_trips.labels(provider=self.name).inc()
+                # Update active circuit breakers gauge
+                await self._update_active_circuit_breakers_gauge()
             await self.redis_client.set(self.state_key, "open")
             await self.redis_client.set(self.opened_at_key, time.time())
+    
+    async def _update_active_circuit_breakers_gauge(self):
+        # Count number of open circuit breakers
+        open_count = 0
+        for provider in ["openai", "anthropic"]:
+            cb = CircuitBreaker(provider, redis_client=self.redis_client)
+            state = await cb._get_state()
+            if state == "open":
+                open_count += 1
+        active_circuit_breakers_open.set(open_count)
     
     async def _reset_failure(self):
         await self.redis_client.set(self.failure_count_key, 0)
         await self.redis_client.set(self.state_key, "closed")
+        await self._update_active_circuit_breakers_gauge()
     
     async def __aenter__(self):
         state = await self._get_state()

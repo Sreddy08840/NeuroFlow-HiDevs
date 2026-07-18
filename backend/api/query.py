@@ -1,6 +1,7 @@
 import asyncio
 import json
 import uuid
+import logging
 from typing import Dict, Any
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Request
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -8,8 +9,13 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse, ServerSentEvent
 from pipelines.generation import Generator
 from backend.resilience.rate_limiter import RateLimiter
+from backend.security.validators import validate_query_text
+from backend.security.prompt_injection import (
+    check_prompt_injection_patterns,
+    check_prompt_injection_llm
+)
 
-
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/query", tags=["query"])
 
 
@@ -41,6 +47,21 @@ async def create_query(req: Request, request: QueryRequest, background_tasks: Ba
             headers={"Retry-After": str(int(wait))},
             content={"detail": "Too Many Requests"}
         )
+    
+    # Validate query text
+    validated_query = validate_query_text(request.query)
+    
+    # Check for prompt injection
+    pattern_match = check_prompt_injection_patterns(validated_query)
+    if pattern_match:
+        logger.warning(f"Prompt injection pattern detected: {pattern_match}")
+        
+    llm_injection = await check_prompt_injection_llm(validated_query)
+    if llm_injection:
+        raise HTTPException(status_code=400, detail={
+            "error": "query_rejected",
+            "reason": "potential_prompt_injection"
+        })
     if request.stream:
         # For streaming, create queue first
         queue = asyncio.Queue()
@@ -51,7 +72,7 @@ async def create_query(req: Request, request: QueryRequest, background_tasks: Ba
             generator = Generator()
             try:
                 async for event in generator.generate_stream(
-                    request.query, request.pipeline_id
+                    validated_query, request.pipeline_id
                 ):
                     await queue.put(event)
             finally:
@@ -78,7 +99,7 @@ async def create_query(req: Request, request: QueryRequest, background_tasks: Ba
     else:
         # Non-streaming: generate and return full response
         generator = Generator()
-        result = await generator.generate(request.query, request.pipeline_id)
+        result = await generator.generate(validated_query, request.pipeline_id)
         return QueryResponse(
             run_id=result.run_id,
             response=result.full_response,
