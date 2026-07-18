@@ -1,0 +1,12 @@
+{
+  "total_requests": 15000,
+  "failures": 120,
+  "failure_rate": 0.8,
+  "response_times": {
+    "p50": 0.8,
+    "p95": 4.2,
+    "p99": 5.8
+  },
+  "rps": 50,
+  "duration": 300
+}
