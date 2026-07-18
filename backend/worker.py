@@ -11,12 +11,12 @@ import asyncpg
 
 
 async def process_evaluation_job(ctx: Any, run_id: str) -> None:
-    # Fetch query, answer, and chunks from database
+    # Fetch query, answer, chunks, and pipeline_id from database
     pool = ctx["db_pool"]
     async with pool.acquire() as conn:
         # Get pipeline run details
         run = await conn.fetchrow("""
-            SELECT query, generation, retrieved_chunk_ids
+            SELECT query, generation, retrieved_chunk_ids, pipeline_id
             FROM pipeline_runs WHERE id = $1
         """, uuid.UUID(run_id))
         if not run:
@@ -25,6 +25,7 @@ async def process_evaluation_job(ctx: Any, run_id: str) -> None:
         query = run["query"]
         answer = run["generation"]
         retrieved_chunk_ids = run["retrieved_chunk_ids"]
+        pipeline_id = str(run["pipeline_id"])
 
         # Get chunk contents
         chunks = []
@@ -37,7 +38,7 @@ async def process_evaluation_job(ctx: Any, run_id: str) -> None:
 
     # Run evaluation
     judge = EvaluationJudge(pool)
-    await judge.evaluate(uuid.UUID(run_id), query, answer, chunks)
+    await judge.evaluate(uuid.UUID(run_id), query, answer, chunks, pipeline_id=pipeline_id)
 
 
 async def startup(ctx: Any) -> None:

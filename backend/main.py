@@ -1,5 +1,6 @@
+import uuid
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from opentelemetry import trace
@@ -12,12 +13,14 @@ from config import settings
 from db.pool import create_db_pool, close_db_pool
 from db.health import get_health_checks
 from db.migrations import check_and_apply_migrations
+from api.auth import router as auth_router, get_current_user
 from api.ingest import router as ingest_router
 from api.query import router as query_router
 from api.runs import router as runs_router
 from api.pipelines import router as pipelines_router
 from api.compare import router as compare_router
 from api.finetune import router as finetune_router
+from api.evaluations import router as evaluations_router
 from resilience.circuit_breaker import CircuitBreaker
 from resilience.backpressure import BackpressureManager
 
@@ -41,17 +44,32 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan, title="NeuroFlow API")
 
+# Security headers middleware
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    request_id = str(uuid.uuid4())
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000"
+    response.headers["Content-Security-Policy"] = "default-src 'self'"
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
 # Add OpenTelemetry middleware
 app.add_middleware(OpenTelemetryMiddleware)
 FastAPIInstrumentor.instrument_app(app)
 
 # Include routers
-app.include_router(ingest_router)
-app.include_router(query_router)
-app.include_router(runs_router)
-app.include_router(pipelines_router)
-app.include_router(compare_router)
-app.include_router(finetune_router)
+app.include_router(auth_router)
+app.include_router(ingest_router, dependencies=[get_current_user])
+app.include_router(query_router, dependencies=[get_current_user])
+app.include_router(runs_router, dependencies=[get_current_user])
+app.include_router(pipelines_router, dependencies=[get_current_user])
+app.include_router(compare_router, dependencies=[get_current_user])
+app.include_router(finetune_router, dependencies=[get_current_user])
+app.include_router(evaluations_router, dependencies=[get_current_user])
 
 
 @app.get("/health")

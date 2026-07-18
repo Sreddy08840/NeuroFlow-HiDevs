@@ -1,6 +1,7 @@
 import hashlib
 import os
 import uuid
+import logging
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -12,8 +13,14 @@ from pipelines.ingestion.pipeline import ingest_document_task
 from backend.config import settings
 from backend.resilience.backpressure import BackpressureManager
 from backend.resilience.rate_limiter import RateLimiter
+from backend.api.auth import require_scope
+from backend.security.validators import (
+    validate_file_type,
+    validate_file_magic_bytes,
+    validate_document_url
+)
 
-
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="", tags=["ingest"])
 
 
@@ -47,7 +54,7 @@ class IngestURLRequest(BaseModel):
     url: str = Field(..., description="URL to ingest")
 
 
-@router.post("/ingest")
+@router.post("/ingest", dependencies=[Depends(require_scope("ingest"))])
 async def ingest(
     request: Request,
     file: UploadFile = File(None),
@@ -81,6 +88,10 @@ async def ingest(
     if file:
         # File ingest
         file_bytes = await file.read()
+        # Validate file
+        validate_file_type(file)
+        if file.filename:
+            validate_file_magic_bytes(file_bytes, file.filename)
         content_hash = _compute_content_hash(file_bytes)
         source_type = _get_source_type(file.filename)
         
@@ -128,7 +139,8 @@ async def ingest(
         return response
     elif url_request and url_request.url:
         # URL ingest
-        content_hash = hashlib.sha256(url_request.url.encode()).hexdigest()
+        validated_url = validate_document_url(url_request.url)
+        content_hash = hashlib.sha256(validated_url.encode()).hexdigest()
         
         async with db_pool.acquire() as conn:
             existing = await conn.fetchval(
@@ -145,10 +157,10 @@ async def ingest(
                 VALUES ($1, $2, $3, $4, $5, $6)
                 """,
                 document_id,
-                url_request.url,
+                validated_url,
                 "url",
                 content_hash,
-                {"url": url_request.url},
+                {"url": validated_url},
                 "queued"
             )
         
@@ -156,7 +168,7 @@ async def ingest(
             "ingest_document_task",
             document_id,
             "url",
-            url=url_request.url
+            url=validated_url
         )
         
         response = {"document_id": document_id, "status": "queued", "duplicate": False}
@@ -165,6 +177,32 @@ async def ingest(
         return response
     else:
         raise HTTPException(status_code=400, detail="Must provide either file or url")
+
+
+@router.get("/documents")
+async def list_documents(
+    db_pool: Pool = Depends(get_db_pool),
+    limit: int = 50,
+    offset: int = 0
+):
+    async with db_pool.acquire() as conn:
+        docs = await conn.fetch(
+            "SELECT id, filename, source_type, status, chunk_count, metadata, created_at FROM documents ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+            limit,
+            offset
+        )
+        return [
+            {
+                "document_id": doc["id"],
+                "filename": doc["filename"],
+                "source_type": doc["source_type"],
+                "status": doc["status"],
+                "chunk_count": doc["chunk_count"],
+                "metadata": doc["metadata"],
+                "created_at": doc["created_at"]
+            }
+            for doc in docs
+        ]
 
 
 @router.get("/documents/{document_id}")

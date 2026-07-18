@@ -1,6 +1,7 @@
 from typing import Optional
 import redis.asyncio as redis
 from backend.config import settings
+from backend.monitoring.metrics import queue_depth
 
 
 class BackpressureManager:
@@ -11,23 +12,25 @@ class BackpressureManager:
         self.full_threshold = 100
     
     async def get_queue_depth(self) -> int:
-        return await self.redis_client.llen(self.queue_key)
+        depth = await self.redis_client.llen(self.queue_key)
+        queue_depth.set(depth)
+        return depth
     
     async def check_backpressure(self) -> tuple[str, dict]:
         """Check ingestion queue backpressure and return status and response data."""
-        queue_depth = await self.get_queue_depth()
-        estimated_wait = queue_depth * 2  # Rough estimate, 2s per item
+        depth = await self.get_queue_depth()
+        estimated_wait = depth * 2  # Rough estimate, 2s per item
         
-        if queue_depth >= self.full_threshold:
+        if depth >= self.full_threshold:
             return "unavailable", {
                 "error": "ingestion_queue_full",
-                "queue_depth": queue_depth,
+                "queue_depth": depth,
                 "retry_after": 30
             }
-        elif queue_depth >= self.high_threshold:
+        elif depth >= self.high_threshold:
             return "warning", {
                 "warning": "high_queue_depth",
-                "queue_depth": queue_depth,
+                "queue_depth": depth,
                 "estimated_wait_minutes": round(estimated_wait / 60, 1)
             }
         else:

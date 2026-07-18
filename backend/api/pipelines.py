@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 import uuid
@@ -6,6 +6,8 @@ import json
 from datetime import datetime, timedelta
 from backend.db.pool import get_db_pool
 from backend.models import PipelineConfig
+from backend.api.auth import require_scope
+from backend.security.validators import validate_pipeline_name
 
 router = APIRouter(prefix="/pipelines", tags=["pipelines"])
 
@@ -19,9 +21,10 @@ class UpdatePipelineRequest(BaseModel):
     description: Optional[str] = None
 
 
-@router.post("", response_model=Dict[str, uuid.UUID])
+@router.post("", response_model=Dict[str, uuid.UUID], dependencies=[Depends(require_scope("admin"))])
 async def create_pipeline(request: CreatePipelineRequest):
     config_dict = request.config.model_dump()
+    config_dict["name"] = validate_pipeline_name(config_dict["name"])
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
@@ -120,7 +123,7 @@ async def get_pipeline(pipeline_id: str):
         return result
 
 
-@router.patch("/{pipeline_id}")
+@router.patch("/{pipeline_id}", dependencies=[Depends(require_scope("admin"))])
 async def update_pipeline(pipeline_id: str, request: UpdatePipelineRequest):
     try:
         pid = uuid.UUID(pipeline_id)
@@ -174,7 +177,7 @@ async def update_pipeline(pipeline_id: str, request: UpdatePipelineRequest):
     return {"status": "ok"}
 
 
-@router.delete("/{pipeline_id}")
+@router.delete("/{pipeline_id}", dependencies=[Depends(require_scope("admin"))])
 async def delete_pipeline(pipeline_id: str):
     try:
         pid = uuid.UUID(pipeline_id)
