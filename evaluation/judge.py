@@ -3,6 +3,7 @@ import json
 import uuid
 from typing import Optional, Dict, Any
 from opentelemetry import trace
+from opentelemetry.trace import Tracer
 import asyncpg
 from backend.db.pool import get_db_pool
 from backend.providers import NeuroFlowClient
@@ -10,9 +11,10 @@ from evaluation.metrics.faithfulness import evaluate_faithfulness
 from evaluation.metrics.answer_relevance import evaluate_answer_relevance
 from evaluation.metrics.context_precision import evaluate_context_precision
 from evaluation.metrics.context_recall import evaluate_context_recall
+from backend.monitoring.metrics import eval_faithfulness, eval_overall
 
 
-tracer = trace.get_tracer(__name__)
+tracer: Tracer = trace.get_tracer(__name__)
 
 
 class EvaluationJudge:
@@ -30,16 +32,36 @@ class EvaluationJudge:
         run_id: uuid.UUID,
         query: str,
         answer: str,
-        chunks: list[str]
+        chunks: list[str],
+        pipeline_id: Optional[str] = None
     ) -> Dict[str, Any]:
         with tracer.start_as_current_span("evaluation.judge") as span:
-            # Run all four metrics in parallel
+            span.set_attributes({"run_id": str(run_id), "pipeline_id": pipeline_id or ""})
+            
+            # Run all four metrics in parallel with individual spans
             context = "\n\n".join(chunks)
+            
+            async def _faithfulness_with_span():
+                with tracer.start_as_current_span("evaluation.faithfulness"):
+                    return await evaluate_faithfulness(query, answer, context)
+            
+            async def _answer_relevance_with_span():
+                with tracer.start_as_current_span("evaluation.answer_relevance"):
+                    return await evaluate_answer_relevance(query, answer)
+            
+            async def _context_precision_with_span():
+                with tracer.start_as_current_span("evaluation.context_precision"):
+                    return await evaluate_context_precision(query, chunks, answer)
+            
+            async def _context_recall_with_span():
+                with tracer.start_as_current_span("evaluation.context_recall"):
+                    return await evaluate_context_recall(query, chunks, answer)
+            
             faithfulness, answer_relevance, context_precision, context_recall = await asyncio.gather(
-                evaluate_faithfulness(query, answer, context),
-                evaluate_answer_relevance(query, answer),
-                evaluate_context_precision(query, chunks, answer),
-                evaluate_context_recall(query, chunks, answer)
+                _faithfulness_with_span(),
+                _answer_relevance_with_span(),
+                _context_precision_with_span(),
+                _context_recall_with_span()
             )
 
             # Compute overall score
@@ -58,6 +80,11 @@ class EvaluationJudge:
                 "context_recall": context_recall,
                 "overall_score": overall_score
             })
+            
+            # Update Prometheus metrics
+            if pipeline_id:
+                eval_faithfulness.labels(pipeline_id=pipeline_id).set(faithfulness)
+                eval_overall.labels(pipeline_id=pipeline_id).set(overall_score)
 
             # Write to evaluations table
             pool = await self._get_db_pool()

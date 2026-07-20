@@ -22,6 +22,10 @@ class RetrievalConfig(BaseModel):
     top_k_after_rerank: int = Field(default=8, ge=1, le=20)
     query_expansion: bool = True
     metadata_filters_enabled: bool = True
+    rrf_k: int = Field(default=60, ge=1, le=200)
+    rrf_dense_weight: float = Field(default=1.0, ge=0.0, le=3.0)
+    rrf_sparse_weight: float = Field(default=1.0, ge=0.0, le=3.0)
+    rrf_metadata_weight: float = Field(default=1.0, ge=0.0, le=3.0)
 
 
 class GenerationConfig(BaseModel):

@@ -5,16 +5,22 @@ from .base import RetrievalResult
 
 def reciprocal_rank_fusion(
     result_lists: list[list[RetrievalResult]],
-    k: int = 60
+    k: int = 60,
+    weights: list[float] | None = None
 ) -> list[RetrievalResult]:
     chunk_scores = defaultdict(float)
     chunk_info: dict[str, RetrievalResult] = {}
 
+    if weights is None:
+        weights = [1.0] * len(result_lists)
+    
+    assert len(weights) == len(result_lists), "Weights length must match result lists length"
+
     # Iterate through each result list
-    for result_list in result_lists:
+    for result_list, weight in zip(result_lists, weights):
         for idx, result in enumerate(result_list):
             rank = idx + 1
-            score = 1.0 / (k + rank)
+            score = (1.0 / (k + rank)) * weight
             chunk_scores[result.chunk_id] += score
             if result.chunk_id not in chunk_info:
                 chunk_info[result.chunk_id] = result

@@ -18,7 +18,7 @@ class Settings(BaseSettings):
 
     # OpenTelemetry
     otel_service_name: str = "neuroflow-api"
-    otel_exporter_otlp_endpoint: str = "http://localhost:4317"
+    otel_exporter_otlp_endpoint: Optional[str] = None
 
     # API
     api_host: str = "0.0.0.0"
@@ -29,9 +29,19 @@ class Settings(BaseSettings):
     anthropic_api_key: Optional[str] = None
 
     # JWT
-    jwt_secret_key: str = "test-secret-key-change-in-production"
+    jwt_secret_key: str
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 60
+
+    # Plugin Secrets
+    plugin_secrets_key: str
+
+    # Telemetry
+    sentry_dsn: Optional[str] = None
+
+    # App
+    environment: str = "development"
+    log_level: str = "INFO"
 
     # Clients (demo)
     # In production, store these securely (e.g., in a database with hashed secrets)

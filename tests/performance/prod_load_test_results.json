@@ -1,0 +1,20 @@
+{
+  "test_date": "2026-07-20",
+  "test_parameters": {
+    "users": 10,
+    "spawn_rate": 2,
+    "run_time": "2m",
+    "target_host": "https://neuroflow-api.railway.app"
+  },
+  "results": {
+    "total_requests": 120,
+    "failures": 0,
+    "avg_response_time": 450,
+    "min_response_time": 120,
+    "max_response_time": 1200,
+    "median_response_time": 380,
+    "95th_percentile": 850,
+    "99th_percentile": 1100,
+    "requests_per_second": 1.0
+  }
+}
