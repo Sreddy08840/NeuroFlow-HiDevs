@@ -58,10 +58,10 @@ mutf8==1.1.0
 narwhals==2.23.0
 networkx==3.6.1
 nltk==3.8.1
-numpy>=2.1.0,<2.5.0
+numpy>=1.23,<2.0.0
 openai>=2.0.0,<3.0.0
 packaging>=20.0,<27.0
-pandas>=2.2.0,<4.0.0
+pandas>=2.0,<2.3
 parso==0.8.7
 pdfminer.six==20221105
 pdfplumber==0.10.3
