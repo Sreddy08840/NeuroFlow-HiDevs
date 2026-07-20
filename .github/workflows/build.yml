@@ -9,23 +9,34 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      IMAGE_NAME: ghcr.io/${{ toLower(github.repository) }}/api
     steps:
       - uses: actions/checkout@v4
+
       - uses: docker/setup-buildx-action@v3
+
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v5
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
         with:
           context: backend
           push: true
-          tags: ghcr.io/${{ toLower(github.repository) }}/api:${{ github.sha }}
+          # multiple tags: full sha and latest
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - uses: aquasecurity/trivy-action@master
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@v1
         with:
-          image-ref: ghcr.io/${{ toLower(github.repository) }}/api:${{ github.sha }}
+          image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
           exit-code: "1"
           severity: CRITICAL
