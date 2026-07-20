@@ -1,5 +1,5 @@
 import asyncio
-from typing import Optional, Any
+from typing import Optional, Any, Coroutine
 import redis.asyncio as redis
 from backend.config import settings
 
@@ -22,8 +22,8 @@ class TimeoutManager:
         self.redis_client = redis_client or redis.from_url(settings.redis_url)
     
     async def execute_with_timeout(
-        self, task_type: str, coro: Any
-    ):
+        self, task_type: str, coro: Coroutine[Any, Any, Any]
+    ) -> Any:
         timeout = self.timeouts.get(task_type, 30)
         try:
             return await asyncio.wait_for(coro, timeout=timeout)
