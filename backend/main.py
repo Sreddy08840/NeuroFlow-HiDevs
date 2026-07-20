@@ -21,6 +21,7 @@ from api.pipelines import router as pipelines_router
 from api.compare import router as compare_router
 from api.finetune import router as finetune_router
 from api.evaluations import router as evaluations_router
+from api.admin import router as admin_router
 from resilience.circuit_breaker import CircuitBreaker
 from resilience.backpressure import BackpressureManager
 
@@ -42,7 +43,13 @@ async def lifespan(app: FastAPI):
     await close_db_pool()
 
 
-app = FastAPI(lifespan=lifespan, title="NeuroFlow API")
+app = FastAPI(
+    lifespan=lifespan,
+    title="NeuroFlow API",
+    description="Enterprise RAG platform API for document ingestion, querying, evaluation, and fine-tuning.",
+    version="1.0.0",
+    summary="NeuroFlow RAG Platform API"
+)
 
 # Security headers middleware
 @app.middleware("http")
@@ -70,9 +77,14 @@ app.include_router(pipelines_router, dependencies=[get_current_user])
 app.include_router(compare_router, dependencies=[get_current_user])
 app.include_router(finetune_router, dependencies=[get_current_user])
 app.include_router(evaluations_router, dependencies=[get_current_user])
+app.include_router(admin_router, dependencies=[get_current_user])
 
 
-@app.get("/health")
+@app.get(
+    "/health",
+    summary="Get health status",
+    description="Check system health: Postgres, Redis, MLflow, circuit breaker status, and queue depth"
+)
 async def health_check():
     postgres_check, redis_check, mlflow_check = await get_health_checks()
     
@@ -113,7 +125,12 @@ async def health_check():
     }
 
 
-@app.get("/metrics", response_class=PlainTextResponse)
+@app.get(
+    "/metrics",
+    response_class=PlainTextResponse,
+    summary="Get Prometheus metrics",
+    description="Prometheus metrics endpoint for monitoring system performance and health"
+)
 async def metrics():
     return PlainTextResponse(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 

@@ -9,11 +9,19 @@ router = APIRouter(prefix="/runs", tags=["runs"])
 
 
 class RatingRequest(BaseModel):
-    rating: int = Field(..., ge=1, le=5, description="Human rating from 1 to 5")
+    rating: int = Field(..., ge=1, le=5, description="Human evaluation of the answer quality, 1 (worst) to 5 (best)")
 
 
-@router.patch("/{run_id}/rating")
-async def update_run_rating(run_id: str, request: RatingRequest):
+@router.patch(
+    "/{run_id}/rating",
+    tags=["Runs"],
+    summary="Add human rating to run",
+    description="Submit a human quality rating for a query run. Used for model calibration and evaluation."
+)
+async def update_run_rating(
+    run_id: str = Field(..., description="ID of the query run to rate"),
+    request: RatingRequest = ...
+):
     try:
         run_uuid = uuid.UUID(run_id)
     except ValueError:

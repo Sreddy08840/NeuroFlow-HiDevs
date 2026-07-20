@@ -51,13 +51,25 @@ def _get_source_type(filename: str) -> str:
 
 
 class IngestURLRequest(BaseModel):
-    url: str = Field(..., description="URL to ingest")
+    url: str = Field(..., description="URL to ingest content from")
 
 
-@router.post("/ingest", dependencies=[Depends(require_scope("ingest"))])
+class IngestResponse(BaseModel):
+    document_id: str = Field(..., description="Unique ID of the ingested document")
+    status: str = Field(..., description="Current status: 'queued' or 'complete'")
+    duplicate: bool = Field(..., description="Whether this document was already ingested")
+
+
+@router.post(
+    "/ingest",
+    response_model=IngestResponse,
+    tags=["Ingestion"],
+    summary="Ingest a document from file or URL",
+    description="Upload a file or provide a URL to ingest into NeuroFlow. Supports PDF, DOCX, images, CSV, and web URLs."
+)
 async def ingest(
     request: Request,
-    file: UploadFile = File(None),
+    file: UploadFile = File(None, description="File to upload and ingest"),
     url_request: IngestURLRequest = None,
     db_pool: Pool = Depends(get_db_pool),
     arq_pool = Depends(get_arq_pool)
@@ -179,11 +191,16 @@ async def ingest(
         raise HTTPException(status_code=400, detail="Must provide either file or url")
 
 
-@router.get("/documents")
+@router.get(
+    "/documents",
+    tags=["Ingestion"],
+    summary="List documents",
+    description="Get a paginated list of all ingested documents, sorted by most recent first"
+)
 async def list_documents(
     db_pool: Pool = Depends(get_db_pool),
-    limit: int = 50,
-    offset: int = 0
+    limit: int = Field(50, ge=1, le=100, description="Number of documents to return per page"),
+    offset: int = Field(0, ge=0, description="Number of documents to skip")
 ):
     async with db_pool.acquire() as conn:
         docs = await conn.fetch(
@@ -205,9 +222,14 @@ async def list_documents(
         ]
 
 
-@router.get("/documents/{document_id}")
+@router.get(
+    "/documents/{document_id}",
+    tags=["Ingestion"],
+    summary="Get document details",
+    description="Retrieve detailed information about a specific document by its ID"
+)
 async def get_document(
-    document_id: str,
+    document_id: str = Field(..., description="Unique ID of the document to retrieve"),
     db_pool: Pool = Depends(get_db_pool)
 ):
     async with db_pool.acquire() as conn:

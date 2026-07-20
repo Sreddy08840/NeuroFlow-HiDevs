@@ -24,18 +24,27 @@ active_streams: Dict[str, asyncio.Queue] = {}
 
 
 class QueryRequest(BaseModel):
-    query: str = Field(..., description="User's question")
-    pipeline_id: uuid.UUID = Field(..., description="Pipeline ID to use")
-    stream: bool = Field(default=False, description="Whether to stream the response")
+    query: str = Field(..., description="User's question to answer using RAG")
+    pipeline_id: uuid.UUID = Field(..., description="ID of the pipeline to use for querying")
+    stream: bool = Field(default=False, description="Whether to stream response tokens via SSE")
 
 
 class QueryResponse(BaseModel):
-    run_id: str
-    response: str
-    citations: list
+    run_id: str = Field(..., description="Unique ID for this query run")
+    response: str = Field(..., description="Full generated answer")
+    citations: list = Field(..., description="List of citations with source information")
 
 
-@router.post("")
+class StreamInitResponse(BaseModel):
+    run_id: str = Field(..., description="Unique ID for this query run, use with /stream endpoint")
+
+
+@router.post(
+    "",
+    tags=["Query"],
+    summary="Run a RAG query",
+    description="Send a question to NeuroFlow and get an answer using retrieved context. Can stream response tokens or return full answer at once."
+)
 async def create_query(req: Request, request: QueryRequest, background_tasks: BackgroundTasks):
     # Endpoint rate limiting: 60 req/min per IP
     client_ip = req.client.host if req.client else "unknown"
@@ -140,6 +149,11 @@ async def event_generator(run_id: str):
                 last_event_time = current_time
 
 
-@router.get("/{run_id}/stream")
-async def stream_query(run_id: str):
+@router.get(
+    "/{run_id}/stream",
+    tags=["Query"],
+    summary="Stream query response tokens",
+    description="Server-Sent Events (SSE) endpoint to stream tokens from an ongoing query run"
+)
+async def stream_query(run_id: str = Field(..., description="Run ID obtained from /query POST endpoint")):
     return EventSourceResponse(event_generator(run_id))

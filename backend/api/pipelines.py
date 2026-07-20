@@ -13,15 +13,22 @@ router = APIRouter(prefix="/pipelines", tags=["pipelines"])
 
 
 class CreatePipelineRequest(BaseModel):
-    config: PipelineConfig
+    config: PipelineConfig = Field(..., description="Full pipeline configuration")
 
 
 class UpdatePipelineRequest(BaseModel):
-    config: Optional[PipelineConfig] = None
-    description: Optional[str] = None
+    config: Optional[PipelineConfig] = Field(None, description="New pipeline configuration (creates new version)")
+    description: Optional[str] = Field(None, description="New pipeline description")
 
 
-@router.post("", response_model=Dict[str, uuid.UUID], dependencies=[Depends(require_scope("admin"))])
+@router.post(
+    "",
+    response_model=Dict[str, uuid.UUID],
+    tags=["Pipelines"],
+    dependencies=[Depends(require_scope("admin"))],
+    summary="Create pipeline",
+    description="Create a new pipeline with the specified configuration"
+)
 async def create_pipeline(request: CreatePipelineRequest):
     config_dict = request.config.model_dump()
     config_dict["name"] = validate_pipeline_name(config_dict["name"])
@@ -50,7 +57,13 @@ async def create_pipeline(request: CreatePipelineRequest):
     return {"pipeline_id": pipeline_id}
 
 
-@router.get("", response_model=List[Dict[str, Any]])
+@router.get(
+    "",
+    response_model=List[Dict[str, Any]],
+    tags=["Pipelines"],
+    summary="List pipelines",
+    description="Get all active pipelines with their metadata"
+)
 async def list_pipelines():
     pool = await get_db_pool()
     async with pool.acquire() as conn:
@@ -79,8 +92,16 @@ async def list_pipelines():
         return result
 
 
-@router.get("/{pipeline_id}", response_model=Dict[str, Any])
-async def get_pipeline(pipeline_id: str):
+@router.get(
+    "/{pipeline_id}",
+    response_model=Dict[str, Any],
+    tags=["Pipelines"],
+    summary="Get pipeline details",
+    description="Retrieve full pipeline configuration, current version, and aggregate evaluation scores"
+)
+async def get_pipeline(
+    pipeline_id: str = Field(..., description="Unique ID of the pipeline to retrieve")
+):
     try:
         pid = uuid.UUID(pipeline_id)
     except ValueError:

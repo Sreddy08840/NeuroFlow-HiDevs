@@ -11,8 +11,16 @@ router = APIRouter(prefix="/evaluations", tags=["evaluations"])
 # In-memory channel for SSE (in production, use Redis Pub/Sub)
 evaluation_channel = asyncio.Queue()
 
-@router.get("")
-async def list_evaluations(limit: int = 50, offset: int = 0):
+@router.get(
+    "",
+    tags=["Evaluations"],
+    summary="List evaluations",
+    description="Get a paginated list of all evaluation results, most recent first"
+)
+async def list_evaluations(
+    limit: int = Field(50, ge=1, le=100, description="Number of evaluations to return per page"),
+    offset: int = Field(0, ge=0, description="Number of evaluations to skip")
+):
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
@@ -37,7 +45,12 @@ async def list_evaluations(limit: int = 50, offset: int = 0):
         )
         return [dict(row) for row in rows]
 
-@router.get("/stream")
+@router.get(
+    "/stream",
+    tags=["Evaluations"],
+    summary="Stream new evaluations",
+    description="Server-Sent Events (SSE) endpoint to receive new evaluation results as they are created"
+)
 async def stream_evaluations(request: Request) -> EventSourceResponse:
     async def event_generator() -> AsyncGenerator[ServerSentEvent, None]:
         while True:
