@@ -2,7 +2,7 @@ import asyncio
 import json
 import uuid
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, AsyncGenerator
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
@@ -102,7 +102,7 @@ async def create_query(req: Request, request: QueryRequest, background_tasks: Ba
                     real_run_id = event["run_id"]
                     active_streams[real_run_id] = queue
                     return {"run_id": real_run_id}
-        except asyncio.TimeoutError:
+        except TimeoutError:
             raise HTTPException(status_code=500, detail="Failed to get run ID")
 
     else:
@@ -125,7 +125,7 @@ async def create_query(req: Request, request: QueryRequest, background_tasks: Ba
         )
 
 
-async def event_generator(run_id: str):
+async def event_generator(run_id: str) -> AsyncGenerator[ServerSentEvent, None]:
     if run_id not in active_streams:
         yield ServerSentEvent(data=json.dumps({"type": "error", "message": "Run not found"}))
         return
@@ -141,7 +141,7 @@ async def event_generator(run_id: str):
                 break
             yield ServerSentEvent(data=json.dumps(event))
             last_event_time = asyncio.get_event_loop().time()
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # Send keepalive
             current_time = asyncio.get_event_loop().time()
             if current_time - last_event_time >= 15:

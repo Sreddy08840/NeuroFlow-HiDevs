@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
+from pydantic import Field
 from sse_starlette.sse import EventSourceResponse, ServerSentEvent
 import asyncio
 import json
@@ -62,7 +63,7 @@ async def stream_evaluations(request: Request) -> EventSourceResponse:
                 # Wait for a new evaluation (with timeout to check for disconnection)
                 evaluation = await asyncio.wait_for(evaluation_channel.get(), timeout=1.0)
                 yield ServerSentEvent(data=json.dumps(evaluation))
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
     
     return EventSourceResponse(event_generator())

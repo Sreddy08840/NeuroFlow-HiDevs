@@ -4,7 +4,7 @@ import redis.asyncio as redis
 from backend.config import settings
 
 
-class TimeoutError(Exception):
+class TaskTimeoutError(Exception):
     pass
 
 
@@ -27,7 +27,7 @@ class TimeoutManager:
         timeout = self.timeouts.get(task_type, 30)
         try:
             return await asyncio.wait_for(coro, timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # Increment timeout counter in Redis
             await self.redis_client.incr(f"timeouts:{task_type}")
-            raise TimeoutError(f"{task_type} timed out after {timeout} seconds")
+            raise TaskTimeoutError(f"{task_type} timed out after {timeout} seconds")
