@@ -41,7 +41,11 @@ class Retriever:
         k: int = 20,
         use_rerank: bool = True,
         dense_k: int = 30,
-        sparse_k: int = 20
+        sparse_k: int = 20,
+        rrf_k: int = 60,
+        rrf_dense_weight: float = 1.0,
+        rrf_sparse_weight: float = 1.0,
+        rrf_metadata_weight: float = 1.0
     ) -> List[RetrievalResult]:
         import time
         start_time = time.time()
@@ -78,8 +82,15 @@ class Retriever:
             # Step 3: Fuse results with span
             with tracer.start_as_current_span("retrieval.fusion") as fusion_span:
                 all_results = [dense_results, sparse_results, metadata_results]
-                all_results = [r for r in all_results if len(r) > 0]
-                fused = reciprocal_rank_fusion(all_results)
+                weights = [rrf_dense_weight, rrf_sparse_weight, rrf_metadata_weight]
+                # Filter out empty result lists and adjust weights accordingly
+                filtered_results = []
+                filtered_weights = []
+                for res, w in zip(all_results, weights):
+                    if len(res) > 0:
+                        filtered_results.append(res)
+                        filtered_weights.append(w)
+                fused = reciprocal_rank_fusion(filtered_results, k=rrf_k, weights=filtered_weights)
                 fusion_span.set_attributes({"chunk_count": len(fused)})
 
             # Step 4: Rerank with span

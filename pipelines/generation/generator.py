@@ -157,6 +157,10 @@ class Generator:
             k=config.retrieval.top_k_after_rerank,
             dense_k=config.retrieval.dense_k,
             sparse_k=config.retrieval.sparse_k,
+            rrf_k=config.retrieval.rrf_k,
+            rrf_dense_weight=config.retrieval.rrf_dense_weight,
+            rrf_sparse_weight=config.retrieval.rrf_sparse_weight,
+            rrf_metadata_weight=config.retrieval.rrf_metadata_weight,
             use_rerank=config.retrieval.reranker != "none"
         )
         retrieval_latency_ms = int((time.time() - retrieval_start) * 1000)
@@ -183,7 +187,8 @@ class Generator:
         # Step 3: Build prompt and generate
         generation_start = time.time()
         assembled_prompt = self.prompt_builder.build(
-            query, context_window, processed_query, use_chain_of_thought
+            query, context_window, processed_query, use_chain_of_thought,
+            system_prompt_variant=config.generation.system_prompt_variant
         )
 
         full_response = ""

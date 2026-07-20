@@ -123,7 +123,9 @@ def _hierarchical_chunks(
 def create_chunks(
     pages: List[ExtractedPage],
     source_type: str,
-    num_pages: int = None
+    num_pages: int = None,
+    chunk_size: int = 512,
+    chunk_overlap: int = 64
 ) -> List[Chunk]:
     # Select strategy
     tokenizer = tiktoken.get_encoding("cl100k_base")
@@ -143,7 +145,7 @@ def create_chunks(
     for page in pages:
         if page.content_type == "table":
             # Tables always get fixed size
-            table_chunks = _fixed_size_chunks(page.content, tokenizer)
+            table_chunks = _fixed_size_chunks(page.content, tokenizer, chunk_size, chunk_overlap)
             for chunk_text in table_chunks:
                 all_chunks.append(Chunk(
                     content=chunk_text,
@@ -160,7 +162,7 @@ def create_chunks(
         else:
             if strategy == "hierarchical":
                 # We'll handle hierarchical as fixed size for now, keep metadata
-                page_chunks = _fixed_size_chunks(page.content, tokenizer)
+                page_chunks = _fixed_size_chunks(page.content, tokenizer, chunk_size, chunk_overlap)
                 for chunk_text in page_chunks:
                     all_chunks.append(Chunk(
                         content=chunk_text,
@@ -177,11 +179,11 @@ def create_chunks(
             else:
                 # Fixed or semantic
                 if strategy == "fixed_size":
-                    page_chunks = _fixed_size_chunks(page.content, tokenizer)
+                    page_chunks = _fixed_size_chunks(page.content, tokenizer, chunk_size, chunk_overlap)
                 else:  # semantic
                     # Semantic is async, but we'll run in pipeline
                     # For now, use fixed size as fallback
-                    page_chunks = _fixed_size_chunks(page.content, tokenizer)
+                    page_chunks = _fixed_size_chunks(page.content, tokenizer, chunk_size, chunk_overlap)
                 
                 for chunk_text in page_chunks:
                     all_chunks.append(Chunk(
