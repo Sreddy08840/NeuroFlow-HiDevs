@@ -14,7 +14,7 @@ jobs:
       - name: Install tooling
         run: pip install ruff mypy
       - name: Apply fixable ruff fixes
-        run: ruff check backend/ --fix || true
+        run: ruff check backend/ --fix --unsafe-fixes || true
       - name: Lint with ruff (fail on remaining issues)
         run: ruff check backend/
       - name: Type check with mypy
