@@ -121,7 +121,7 @@ wcwidth==0.8.2
 weasel==0.3.4
 websockets==16.0
 win32_setctime==1.2.0
-arq==0.26.0
+arq>=0.27.0
 tiktoken>=0.8.0
 sentence-transformers>=3.0.0
 sse-starlette>=2.0.0
