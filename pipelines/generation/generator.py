@@ -8,6 +8,8 @@ import asyncpg
 import redis.asyncio as redis
 from arq import create_pool
 from arq.connections import RedisSettings
+from opentelemetry import trace
+from opentelemetry.trace import Tracer
 from pipelines.retrieval import (
     Retriever, QueryProcessor, ContextAssembler, ContextWindow, ProcessedQuery
 )
@@ -16,6 +18,16 @@ from backend.providers import NeuroFlowClient, ChatMessage
 from backend.db.pool import get_db_pool
 from backend.config import settings
 from backend.models import PipelineConfig
+from backend.monitoring.metrics import (
+    queries_total,
+    retrieval_latency,
+    generation_latency,
+    llm_calls_total,
+    llm_cost
+)
+
+
+tracer: Tracer = trace.get_tracer(__name__)
 
 
 @dataclass
@@ -244,72 +256,109 @@ class Generator:
         use_chain_of_thought: bool = True
     ) -> GenerationResult:
         start_time = time.time()
+        with tracer.start_as_current_span("generation.pipeline") as generation_span:
+            generation_span.set_attributes({
+                "pipeline_id": str(pipeline_id),
+                "query": query
+            })
+            
+            # Load pipeline config
+            config, pipeline_version_id = await self._get_pipeline_config(pipeline_id)
 
-        # Load pipeline config
-        config, pipeline_version_id = await self._get_pipeline_config(pipeline_id)
+            # Step 1: Retrieval (already instrumented, but we'll add span too)
+            retrieval_start = time.time()
+            processed_query = await self.retriever.query_processor.process(query)
+            retrieval_results = await self.retriever.retrieve(
+                query, 
+                k=config.retrieval.top_k_after_rerank,
+                dense_k=config.retrieval.dense_k,
+                sparse_k=config.retrieval.sparse_k,
+                use_rerank=config.retrieval.reranker != "none"
+            )
+            retrieval_latency_ms = int((time.time() - retrieval_start) * 1000)
+            
+            # Context assembly span
+            with tracer.start_as_current_span("retrieval.assemble") as assemble_span:
+                context_assembler = ContextAssembler(max_tokens=config.generation.max_context_tokens)
+                context_window = context_assembler.assemble(retrieval_results)
+                retrieved_chunk_ids = [r.chunk_id for r in retrieval_results]
+                assemble_span.set_attributes({"chunk_count": len(retrieved_chunk_ids)})
 
-        # Step 1: Retrieval
-        retrieval_start = time.time()
-        processed_query = await self.retriever.query_processor.process(query)
-        retrieval_results = await self.retriever.retrieve(
-            query, 
-            k=config.retrieval.top_k_after_rerank,
-            dense_k=config.retrieval.dense_k,
-            sparse_k=config.retrieval.sparse_k,
-            use_rerank=config.retrieval.reranker != "none"
-        )
-        retrieval_latency_ms = int((time.time() - retrieval_start) * 1000)
-        
-        context_assembler = ContextAssembler(max_tokens=config.generation.max_context_tokens)
-        context_window = context_assembler.assemble(retrieval_results)
-        retrieved_chunk_ids = [r.chunk_id for r in retrieval_results]
+            # Step 2: Create pipeline run
+            run_id = await self._create_pipeline_run(
+                pipeline_id, pipeline_version_id, query, retrieved_chunk_ids
+            )
+            generation_span.set_attributes({"run_id": str(run_id)})
 
-        # Step 2: Create pipeline run
-        run_id = await self._create_pipeline_run(
-            pipeline_id, pipeline_version_id, query, retrieved_chunk_ids
-        )
+            # Step 3: Build prompt span
+            with tracer.start_as_current_span("generation.prompt_build") as prompt_span:
+                assembled_prompt = self.prompt_builder.build(
+                    query, context_window, processed_query, use_chain_of_thought
+                )
+                prompt_span.set_attributes({"prompt_tokens": len("".join([m.content for m in assembled_prompt.messages]))})
 
-        # Step 3: Build prompt and generate
-        generation_start = time.time()
-        assembled_prompt = self.prompt_builder.build(
-            query, context_window, processed_query, use_chain_of_thought
-        )
-        response = await self.client.chat(assembled_prompt.messages)
-        generation_latency_ms = int((time.time() - generation_start) * 1000)
+            # LLM call span and metrics
+            generation_start = time.time()
+            with tracer.start_as_current_span("generation.llm_call") as llm_span:
+                response = await self.client.chat(assembled_prompt.messages)
+                llm_span.set_attributes({
+                    "model": response.model or "",
+                    "input_tokens": response.input_tokens or 0,
+                    "output_tokens": response.output_tokens or 0
+                })
+                # Update llm metrics
+                llm_calls_total.labels(
+                    provider=config.generation.model_provider,
+                    model=response.model or config.generation.model_name,
+                    task_type="chat"
+                ).inc()
+                # TODO: calculate cost (we'll skip for now, but placeholders)
+            
+            generation_latency_sec = (time.time() - generation_start)
+            generation_latency.labels(model=response.model or config.generation.model_name).observe(
+                generation_latency_sec
+            )
+            generation_latency_ms = int(generation_latency_sec * 1000)
 
-        full_response = response.content
-        thinking = ""
+            full_response = response.content
+            thinking = ""
 
-        # Extract thinking if present
-        if use_chain_of_thought and "<think>" in full_response and "</think>" in full_response:
-            start_idx = full_response.find("<think>") + len("<think>")
-            end_idx = full_response.find("</think>")
-            thinking = full_response[start_idx:end_idx].strip()
-            full_response = full_response[:start_idx - len("<think>")] + full_response[end_idx + len("</think>"):]
+            # Extract thinking if present
+            if use_chain_of_thought and "<think>" in full_response and "</think>" in full_response:
+                start_idx = full_response.find("<think>") + len("<think>")
+                end_idx = full_response.find("</think>")
+                thinking = full_response[start_idx:end_idx].strip()
+                full_response = full_response[:start_idx - len("<think>")] + full_response[end_idx + len("</think>"):]
 
-        # Step 4: Parse citations
-        citations = self.citation_parser.parse(full_response, context_window)
+            # Parse citations span
+            with tracer.start_as_current_span("generation.citation_parse") as citation_span:
+                citations = self.citation_parser.parse(full_response, context_window)
+                citation_span.set_attributes({"citation_count": len(citations)})
 
-        # Step 5: Update pipeline run
-        latency_ms = int((time.time() - start_time) * 1000)
-        await self._update_pipeline_run(
-            run_id,
-            full_response,
-            response.input_tokens or 0,
-            response.output_tokens or 0,
-            response.model or "",
-            latency_ms,
-            retrieval_latency_ms,
-            generation_latency_ms,
-            metadata={"thinking": thinking} if thinking else None
-        )
+            # Update pipeline run span
+            with tracer.start_as_current_span("generation.log_run"):
+                latency_ms = int((time.time() - start_time) * 1000)
+                await self._update_pipeline_run(
+                    run_id,
+                    full_response,
+                    response.input_tokens or 0,
+                    response.output_tokens or 0,
+                    response.model or "",
+                    latency_ms,
+                    retrieval_latency_ms,
+                    generation_latency_ms,
+                    metadata={"thinking": thinking} if thinking else None
+                )
 
-        # Step 6: Enqueue evaluation job asynchronously
-        asyncio.create_task(self._enqueue_evaluation_job(run_id))
+            # Update queries_total metric
+            queries_total.labels(pipeline_id=str(pipeline_id), status="success").inc()
 
-        return GenerationResult(
-            run_id=str(run_id),
-            full_response=full_response,
-            citations=citations,
-            thinking=thinking
-        )
+            # Step 6: Enqueue evaluation job asynchronously
+            asyncio.create_task(self._enqueue_evaluation_job(run_id))
+
+            return GenerationResult(
+                run_id=str(run_id),
+                full_response=full_response,
+                citations=citations,
+                thinking=thinking
+            )

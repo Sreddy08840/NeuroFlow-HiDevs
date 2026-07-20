@@ -2,6 +2,8 @@ import asyncio
 import json
 from typing import Any, List
 import asyncpg
+from opentelemetry import trace
+from opentelemetry.trace import Tracer
 from .base import RetrievalResult, ProcessedQuery
 from .fusion import reciprocal_rank_fusion
 from .query_processor import QueryProcessor
@@ -9,6 +11,10 @@ from .reranker import Reranker
 from backend.providers import NeuroFlowClient
 from backend.db.pool import get_db_pool
 from backend.config import settings
+from backend.monitoring.metrics import retrieval_latency
+
+
+tracer: Tracer = trace.get_tracer(__name__)
 
 
 class Retriever:
@@ -37,28 +43,58 @@ class Retriever:
         dense_k: int = 30,
         sparse_k: int = 20
     ) -> List[RetrievalResult]:
-        # Step 1: Process query
-        processed = await self.query_processor.process(query)
+        import time
+        start_time = time.time()
+        
+        with tracer.start_as_current_span("retrieval.pipeline") as pipeline_span:
+            # Step 1: Process query
+            processed = await self.query_processor.process(query)
 
-        # Step 2: Run parallel retrievals
-        dense_results, sparse_results, metadata_results = await asyncio.gather(
-            self._dense_retrieval(processed, dense_k),
-            self._sparse_retrieval(processed, sparse_k),
-            self._metadata_retrieval(processed, sparse_k)
-        )
+            # Step 2: Run parallel retrievals
+            async def _dense_with_span():
+                with tracer.start_as_current_span("retrieval.dense") as dense_span:
+                    results = await self._dense_retrieval(processed, dense_k)
+                    dense_span.set_attributes({"chunk_count": len(results)})
+                    return results
+            
+            async def _sparse_with_span():
+                with tracer.start_as_current_span("retrieval.sparse") as sparse_span:
+                    results = await self._sparse_retrieval(processed, sparse_k)
+                    sparse_span.set_attributes({"chunk_count": len(results)})
+                    return results
+            
+            async def _metadata_with_span():
+                with tracer.start_as_current_span("retrieval.metadata") as metadata_span:
+                    results = await self._metadata_retrieval(processed, sparse_k)
+                    metadata_span.set_attributes({"chunk_count": len(results)})
+                    return results
 
-        # Step 3: Fuse results
-        all_results = [dense_results, sparse_results, metadata_results]
-        # Filter out empty lists
-        all_results = [r for r in all_results if len(r) > 0]
-        fused = reciprocal_rank_fusion(all_results)
+            dense_results, sparse_results, metadata_results = await asyncio.gather(
+                _dense_with_span(),
+                _sparse_with_span(),
+                _metadata_with_span()
+            )
 
-        # Step 4: Rerank
-        if use_rerank:
-            fused = await self.reranker.rerank(processed.original, fused, top_k=40)
+            # Step 3: Fuse results with span
+            with tracer.start_as_current_span("retrieval.fusion") as fusion_span:
+                all_results = [dense_results, sparse_results, metadata_results]
+                all_results = [r for r in all_results if len(r) > 0]
+                fused = reciprocal_rank_fusion(all_results)
+                fusion_span.set_attributes({"chunk_count": len(fused)})
 
-        # Take top k
-        return fused[:k]
+            # Step 4: Rerank with span
+            if use_rerank:
+                with tracer.start_as_current_span("retrieval.rerank") as rerank_span:
+                    fused = await self.reranker.rerank(processed.original, fused, top_k=40)
+                    rerank_span.set_attributes({"chunk_count": len(fused)})
+
+            pipeline_span.set_attributes({"query": query, "k": k})
+            
+            # Record retrieval latency
+            retrieval_latency.labels(strategy="combined").observe(time.time() - start_time)
+
+            # Take top k
+            return fused[:k]
 
     async def _dense_retrieval(
         self,
