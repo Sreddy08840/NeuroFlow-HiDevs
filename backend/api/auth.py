@@ -13,9 +13,9 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
 
 
 class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str
-    expires_in: int
+    access_token: str = Field(..., description="JWT access token to use in Authorization header")
+    token_type: str = Field(..., description="Token type, always 'bearer'")
+    expires_in: int = Field(..., description="Token expiration time in seconds")
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
@@ -57,7 +57,12 @@ def require_scope(required_scope: str):
     return dependency
 
 
-@router.post("/token", response_model=TokenResponse)
+@router.post(
+    "/token",
+    response_model=TokenResponse,
+    summary="Obtain access token",
+    description="Exchange client ID and secret for a JWT access token. Tokens are valid for 24 hours by default."
+)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
     # In production, use proper hashing (bcrypt) for client secrets!
     client_data = settings.jwt_clients.get(form_data.username)
