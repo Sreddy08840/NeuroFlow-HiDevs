@@ -11,6 +11,11 @@ NeuroFlow is a production-ready Retrieval-Augmented Generation (RAG) system with
 - **Fine-tuning**: Automatic fine-tuning job submission and experiment tracking with MLflow
 - **API-first**: RESTful API with streaming support
 
+## Live Demo
+
+- **API Health Check**: https://neuroflow-api.railway.app/health
+- **Deployment Guide**: [docs/deployment.md](docs/deployment.md)
+
 ## Project Structure
 
 ```
@@ -18,23 +23,37 @@ neuroflow/
 ├── docs/
 │   ├── architecture.md    # System architecture and subsystem design
 │   ├── api-contracts.md   # REST API endpoint definitions
+│   ├── deployment.md      # Cloud deployment guide (Railway)
 │   └── adr/               # Architecture Decision Records
-│       ├── 001-vector-store.md
-│       ├── 002-chunking-strategy.md
-│       ├── 003-evaluation-framework.md
-│       └── 004-model-routing.md
-├── .gitignore
-└── README.md
+├── backend/               # FastAPI application
+├── frontend/              # Next.js web app
+├── pipelines/             # RAG pipeline components
+├── infra/                 # Docker, Nginx, Prometheus configs
+└── tests/                 # Unit, integration, and performance tests
 ```
 
 ## Getting Started
 
-(Coming soon)
+### Local Development
+
+```bash
+# Copy env file
+cp .env.example .env
+# Edit .env with your secrets
+
+# Start services
+docker-compose up --build
+```
+
+### Cloud Deployment
+
+See [deployment guide](docs/deployment.md) for detailed Railway deployment steps.
 
 ## Documentation
 
 - [System Architecture](docs/architecture.md)
 - [API Contracts](docs/api-contracts.md)
+- [Deployment Guide](docs/deployment.md)
 - [Architecture Decisions](docs/adr/)
 
 ## License
