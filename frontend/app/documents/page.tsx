@@ -130,7 +130,7 @@ export default function DocumentsPage() {
 
       {/* Documents List */}
       <div className="grid gap-4">
-        {documents.length === 0 ? (
+        {!documents || documents.length === 0 ? (
           <div className="text-center py-12">
             <FileText className="w-12 h-12 mx-auto mb-4 text-slate-300" />
             <p className="text-slate-500">No documents uploaded yet</p>

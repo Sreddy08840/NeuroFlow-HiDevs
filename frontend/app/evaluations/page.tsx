@@ -112,7 +112,7 @@ export default function EvaluationsPage() {
                         <Star
                           key={star}
                           className={`w-4 h-4 ${
-                            star <= evalItem.user_rating
+                            star <= (evalItem.user_rating ?? 0)
                               ? 'text-yellow-400 fill-yellow-400'
                               : 'text-slate-200'
                           }`}
