@@ -12,9 +12,9 @@ class Settings(BaseSettings):
 
     # PostgreSQL
     postgres_user: str = "neuroflow"
-    postgres_password: str = "neuroflow_secret_password"
+    postgres_password: str = "Santosh@1234"
     postgres_db: str = "neuroflow"
-    database_url: str = "postgresql://neuroflow:neuroflow_secret_password@localhost:5432/neuroflow"
+    database_url: str = "postgresql://neuroflow:Santosh%401234@localhost:5432/neuroflow"
 
     # Redis
     redis_password: str = "redis_secret_password"
