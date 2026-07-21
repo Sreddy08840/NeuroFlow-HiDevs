@@ -1,10 +1,13 @@
 import time
+from collections.abc import AsyncGenerator
+from typing import Optional
+
 import redis.asyncio as redis
-from typing import AsyncGenerator, Optional
-from opentelemetry import trace
-from .base import BaseLLMProvider, ChatMessage, GenerationResult
-from .router import ModelRouter, RoutingCriteria
 from config import settings
+from opentelemetry import trace
+
+from .base import ChatMessage, GenerationResult
+from .router import ModelRouter, RoutingCriteria
 
 
 class NeuroFlowClient:
@@ -15,14 +18,14 @@ class NeuroFlowClient:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self):
+    def __init__(self) -> None:
         if not hasattr(self, "_initialized"):
             self.redis_client = redis.from_url(settings.redis_url)
             self.router = ModelRouter(self.redis_client)
             self.tracer = trace.get_tracer(__name__)
             self._initialized = True
 
-    async def chat(self, messages: list[ChatMessage], criteria: Optional[RoutingCriteria] = None) -> GenerationResult:
+    async def chat(self, messages: list[ChatMessage], criteria: RoutingCriteria | None = None) -> GenerationResult:
         if criteria is None:
             criteria = RoutingCriteria(task_type="rag_generation")
 
@@ -48,7 +51,7 @@ class NeuroFlowClient:
 
             return result
 
-    async def chat_stream(self, messages: list[ChatMessage], criteria: Optional[RoutingCriteria] = None) -> AsyncGenerator[str, None]:
+    async def chat_stream(self, messages: list[ChatMessage], criteria: RoutingCriteria | None = None) -> AsyncGenerator[str, None]:
         if criteria is None:
             criteria = RoutingCriteria(task_type="rag_generation")
 
@@ -104,6 +107,6 @@ class NeuroFlowClient:
 
             return embeddings
 
-    async def _update_metrics(self, model_name: str, cost_usd: float):
+    async def _update_metrics(self, model_name: str, cost_usd: float) -> None:
         await self.redis_client.incr(f"metrics:model:{model_name}:calls")
         await self.redis_client.incrbyfloat(f"metrics:model:{model_name}:cost_usd", cost_usd)

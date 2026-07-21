@@ -1,5 +1,6 @@
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Dict, Optional, Literal
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class IngestionConfig(BaseModel):
@@ -9,7 +10,7 @@ class IngestionConfig(BaseModel):
     )
     chunk_size_tokens: int = Field(default=400, ge=100, le=2000, description="Target chunk size in tokens")
     chunk_overlap_tokens: int = Field(default=80, ge=0, le=400, description="Overlap between consecutive chunks in tokens")
-    extractors_enabled: List[Literal["pdf", "docx", "image", "csv", "url", "text"]] = Field(
+    extractors_enabled: list[Literal["pdf", "docx", "image", "csv", "url", "text"]] = Field(
         default_factory=lambda: ["pdf", "docx", "image", "csv", "url", "text"],
         description="List of file types supported for ingestion"
     )
@@ -19,7 +20,7 @@ class RetrievalConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     dense_k: int = Field(default=30, ge=1, le=100, description="Number of dense retrieval results to fetch")
     sparse_k: int = Field(default=20, ge=1, le=100, description="Number of sparse retrieval results to fetch")
-    reranker: Optional[Literal["cross-encoder", "none"]] = Field(default="cross-encoder", description="Reranking model to use")
+    reranker: Literal["cross-encoder", "none"] | None = Field(default="cross-encoder", description="Reranking model to use")
     top_k_after_rerank: int = Field(default=8, ge=1, le=20, description="Number of top chunks to keep after reranking")
     query_expansion: bool = Field(default=True, description="Whether to expand queries with synonyms/related terms")
     metadata_filters_enabled: bool = Field(default=True, description="Enable filtering by document metadata")
@@ -31,7 +32,7 @@ class RetrievalConfig(BaseModel):
 
 class GenerationConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    model_routing: Dict[str, str | float | int] = Field(
+    model_routing: dict[str, str | float | int] = Field(
         default_factory=lambda: {"task_type": "rag_generation", "max_cost_per_call": 0.05},
         description="Configuration for model routing and cost control"
     )
@@ -52,7 +53,7 @@ class EvaluationConfig(BaseModel):
 class PipelineConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(..., min_length=1, max_length=100)
-    description: Optional[str] = None
+    description: str | None = None
     ingestion: IngestionConfig = Field(default_factory=IngestionConfig)
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
     generation: GenerationConfig = Field(default_factory=GenerationConfig)

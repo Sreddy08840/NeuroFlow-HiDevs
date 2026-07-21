@@ -1,12 +1,12 @@
-import asyncio
 import time
-from typing import Optional
+
 import redis.asyncio as redis
+
 from backend.config import settings
 
 
 class RateLimiter:
-    def __init__(self, redis_client: Optional[redis.Redis] = None):
+    def __init__(self, redis_client: redis.Redis | None = None) -> None:
         self.redis_client = redis_client or redis.from_url(settings.redis_url)
         
         # Provider rate limits: tokens per bucket, tokens per second replenishment
@@ -16,7 +16,7 @@ class RateLimiter:
     
     async def _check_token_bucket(
         self, key: str, max_tokens: int, replenish_rate: float, consume: int = 1
-    ) -> tuple[bool, Optional[float]]:
+    ) -> tuple[bool, float | None]:
         """Check token bucket and consume tokens if available. Returns (allowed, retry_after_seconds)."""
         now = time.time()
         
@@ -49,7 +49,7 @@ class RateLimiter:
             wait = needed / replenish_rate
             return False, wait
     
-    async def check_provider_rate_limit(self, provider: str) -> tuple[bool, Optional[float]]:
+    async def check_provider_rate_limit(self, provider: str) -> tuple[bool, float | None]:
         """Check provider-level rate limit."""
         config = self.provider_configs.get(provider, {"max_tokens": 1000, "replenish_rate": 16.67})
         key = f"rpb:{provider}:tokens"
@@ -57,7 +57,7 @@ class RateLimiter:
     
     async def check_pipeline_rate_limit(
         self, pipeline_id: str, rate_limit_rpm: int = 60
-    ) -> tuple[bool, Optional[float]]:
+    ) -> tuple[bool, float | None]:
         """Check per-pipeline rate limit (requests per minute)."""
         max_tokens = rate_limit_rpm
         replenish_rate = rate_limit_rpm / 60.0
@@ -66,7 +66,7 @@ class RateLimiter:
     
     async def check_endpoint_rate_limit(
         self, endpoint: str, ip: str, max_requests: int, window_seconds: int
-    ) -> tuple[bool, Optional[float]]:
+    ) -> tuple[bool, float | None]:
         """Check endpoint-level rate limit using sliding window counter."""
         now = time.time()
         window_start = now - window_seconds

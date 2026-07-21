@@ -1,26 +1,28 @@
 import asyncio
 import json
-import uuid
 import logging
-from typing import Dict, Any, AsyncGenerator
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Request
-from fastapi.responses import StreamingResponse, JSONResponse
+import uuid
+from collections.abc import AsyncGenerator
+
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse, ServerSentEvent
-from pipelines.generation import Generator
+
 from backend.resilience.rate_limiter import RateLimiter
-from backend.security.validators import validate_query_text
 from backend.security.prompt_injection import (
+    check_prompt_injection_llm,
     check_prompt_injection_patterns,
-    check_prompt_injection_llm
 )
+from backend.security.validators import validate_query_text
+from pipelines.generation import Generator
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/query", tags=["query"])
 
 
 # In-memory store for active streams (for demonstration; in production, use Redis)
-active_streams: Dict[str, asyncio.Queue] = {}
+active_streams: dict[str, asyncio.Queue] = {}
 
 
 class QueryRequest(BaseModel):
@@ -77,7 +79,7 @@ async def create_query(req: Request, request: QueryRequest, background_tasks: Ba
         real_run_id = None
 
         # Start generation in background
-        async def run_generation():
+        async def run_generation() -> None:
             generator = Generator()
             try:
                 async for event in generator.generate_stream(

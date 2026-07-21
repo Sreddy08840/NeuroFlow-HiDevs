@@ -1,12 +1,13 @@
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
-import uuid
 import json
-from datetime import datetime, timedelta
+import uuid
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+
+from backend.api.auth import require_scope
 from backend.db.pool import get_db_pool
 from backend.models import PipelineConfig
-from backend.api.auth import require_scope
 from backend.security.validators import validate_pipeline_name
 
 router = APIRouter(prefix="/pipelines", tags=["pipelines"])
@@ -17,13 +18,13 @@ class CreatePipelineRequest(BaseModel):
 
 
 class UpdatePipelineRequest(BaseModel):
-    config: Optional[PipelineConfig] = Field(None, description="New pipeline configuration (creates new version)")
-    description: Optional[str] = Field(None, description="New pipeline description")
+    config: PipelineConfig | None = Field(None, description="New pipeline configuration (creates new version)")
+    description: str | None = Field(None, description="New pipeline description")
 
 
 @router.post(
     "",
-    response_model=Dict[str, uuid.UUID],
+    response_model=dict[str, uuid.UUID],
     tags=["Pipelines"],
     dependencies=[Depends(require_scope("admin"))],
     summary="Create pipeline",
@@ -59,7 +60,7 @@ async def create_pipeline(request: CreatePipelineRequest):
 
 @router.get(
     "",
-    response_model=List[Dict[str, Any]],
+    response_model=list[dict[str, Any]],
     tags=["Pipelines"],
     summary="List pipelines",
     description="Get all active pipelines with their metadata"
@@ -94,7 +95,7 @@ async def list_pipelines():
 
 @router.get(
     "/{pipeline_id}",
-    response_model=Dict[str, Any],
+    response_model=dict[str, Any],
     tags=["Pipelines"],
     summary="Get pipeline details",
     description="Retrieve full pipeline configuration, current version, and aggregate evaluation scores"
@@ -213,7 +214,7 @@ async def delete_pipeline(pipeline_id: str):
     return {"status": "ok"}
 
 
-@router.get("/{pipeline_id}/runs", response_model=List[Dict[str, Any]])
+@router.get("/{pipeline_id}/runs", response_model=list[dict[str, Any]])
 async def list_pipeline_runs(
     pipeline_id: str, 
     limit: int = 20, 
@@ -248,7 +249,7 @@ async def list_pipeline_runs(
         return result
 
 
-@router.get("/{pipeline_id}/analytics", response_model=Dict[str, Any])
+@router.get("/{pipeline_id}/analytics", response_model=dict[str, Any])
 async def get_pipeline_analytics(pipeline_id: str):
     try:
         pid = uuid.UUID(pipeline_id)

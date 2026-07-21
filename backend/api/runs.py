@@ -1,9 +1,9 @@
+import uuid
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-import uuid
-import asyncpg
-from backend.db.pool import get_db_pool
 
+from backend.db.pool import get_db_pool
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 

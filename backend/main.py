@@ -1,30 +1,31 @@
 import uuid
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
-from fastapi.responses import PlainTextResponse
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-from opentelemetry import trace
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.instrumentation.asgi import OpenTelemetryMiddleware
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from config import settings
-from db.pool import create_db_pool, close_db_pool
-from db.health import get_health_checks
-from db.migrations import check_and_apply_migrations
-from api.auth import router as auth_router, get_current_user
+
+from api.admin import router as admin_router
+from api.auth import get_current_user
+from api.auth import router as auth_router
+from api.compare import router as compare_router
+from api.evaluations import router as evaluations_router
+from api.finetune import router as finetune_router
 from api.ingest import router as ingest_router
+from api.pipelines import router as pipelines_router
 from api.query import router as query_router
 from api.runs import router as runs_router
-from api.pipelines import router as pipelines_router
-from api.compare import router as compare_router
-from api.finetune import router as finetune_router
-from api.evaluations import router as evaluations_router
-from api.admin import router as admin_router
-from resilience.circuit_breaker import CircuitBreaker
+from config import settings
+from db.health import get_health_checks
+from db.migrations import check_and_apply_migrations
+from db.pool import close_db_pool, create_db_pool
+from fastapi import FastAPI, Request
+from fastapi.responses import PlainTextResponse
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.asgi import OpenTelemetryMiddleware
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from resilience.backpressure import BackpressureManager
-
+from resilience.circuit_breaker import CircuitBreaker
 
 # Initialize OpenTelemetry
 trace.set_tracer_provider(TracerProvider())

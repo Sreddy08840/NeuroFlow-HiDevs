@@ -1,5 +1,6 @@
+from typing import Any
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Optional, Dict, Any
 
 
 class Settings(BaseSettings):
@@ -24,15 +25,15 @@ class Settings(BaseSettings):
 
     # OpenTelemetry
     otel_service_name: str = "neuroflow-api"
-    otel_exporter_otlp_endpoint: Optional[str] = None
+    otel_exporter_otlp_endpoint: str | None = None
 
     # API
     api_host: str = "0.0.0.0"
     api_port: int = 8000
 
     # LLM API Keys
-    openai_api_key: Optional[str] = None
-    anthropic_api_key: Optional[str] = None
+    openai_api_key: str | None = None
+    anthropic_api_key: str | None = None
 
     # JWT
     jwt_secret_key: str = "dev_secret_jwt_key_32_bytes_long_1234567890"
@@ -43,7 +44,7 @@ class Settings(BaseSettings):
     plugin_secrets_key: str = "dev_plugin_secrets_key_32_bytes_long"
 
     # Telemetry
-    sentry_dsn: Optional[str] = None
+    sentry_dsn: str | None = None
 
     # App
     environment: str = "development"
@@ -51,7 +52,7 @@ class Settings(BaseSettings):
 
     # Clients (demo)
     # In production, store these securely (e.g., in a database with hashed secrets)
-    jwt_clients: Dict[str, Dict[str, Any]] = {
+    jwt_clients: dict[str, dict[str, Any]] = {
         "demo-client": {
             "client_secret": "demo-secret",
             "scopes": ["query", "ingest"]

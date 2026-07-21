@@ -1,11 +1,12 @@
-from dataclasses import dataclass
-from typing import Dict, Any, List
 import json
+from dataclasses import dataclass
+from typing import Any
+
 from redis.asyncio import Redis
+
+from .anthropic_provider import AnthropicProvider
 from .base import BaseLLMProvider
 from .openai_provider import OpenAIProvider
-from .anthropic_provider import AnthropicProvider
-from config import settings
 
 
 @dataclass
@@ -19,7 +20,7 @@ class RoutingCriteria:
 
 
 class ModelRouter:
-    def __init__(self, redis_client: Redis):
+    def __init__(self, redis_client: Redis) -> None:
         self.redis_client = redis_client
         self._model_registry_key = "router:models"
         self._default_models = [
@@ -69,7 +70,7 @@ class ModelRouter:
             "anthropic": AnthropicProvider,
         }
 
-    async def get_registered_models(self) -> List[Dict[str, Any]]:
+    async def get_registered_models(self) -> list[dict[str, Any]]:
         models_json = await self.redis_client.get(self._model_registry_key)
         if models_json:
             return json.loads(models_json)
@@ -115,7 +116,7 @@ class ModelRouter:
         provider = provider_cls(model=selected["name"])
         return provider, selected["name"]
 
-    async def register_model(self, model_config: Dict[str, Any]):
+    async def register_model(self, model_config: dict[str, Any]) -> None:
         models = await self.get_registered_models()
         # Replace if name exists
         models = [m for m in models if m["name"] != model_config["name"]]

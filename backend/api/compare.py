@@ -1,11 +1,12 @@
 import asyncio
 import uuid
+from dataclasses import dataclass
+from typing import Any
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from dataclasses import dataclass
-from typing import Dict, Any, Optional
+
 from pipelines.generation import Generator
-from backend.db.pool import get_db_pool
 
 router = APIRouter(prefix="/pipelines", tags=["pipelines"])
 
@@ -23,7 +24,7 @@ class PipelineResult:
     retrieval_latency_ms: int
     total_latency_ms: int
     chunks_used: int
-    eval_score: Optional[float]
+    eval_score: float | None
 
 
 async def run_pipeline(
@@ -35,13 +36,13 @@ async def run_pipeline(
     start_time = asyncio.get_event_loop().time()
     
     retrieval_start = asyncio.get_event_loop().time()
-    processed_query = await generator.retriever.query_processor.process(query)
+    await generator.retriever.query_processor.process(query)
     retrieval_results = await generator.retriever.retrieve(query)
     retrieval_latency_ms = int((asyncio.get_event_loop().time() - retrieval_start) * 1000)
     
     context_assembler = generator.prompt_builder.__class__.__bases__[0]  # Hacky but okay for now
     context_assembler = context_assembler()
-    context_window = context_assembler.assemble(retrieval_results)
+    context_assembler.assemble(retrieval_results)
     
     # Create pipeline run and generate
     config, pipeline_version_id = await generator._get_pipeline_config(pipeline_id)
@@ -51,7 +52,7 @@ async def run_pipeline(
     
     generation_start = asyncio.get_event_loop().time()
     result = await generator.generate(query, pipeline_id)
-    generation_latency_ms = int((asyncio.get_event_loop().time() - generation_start) * 1000)
+    int((asyncio.get_event_loop().time() - generation_start) * 1000)
     
     total_latency_ms = int((asyncio.get_event_loop().time() - start_time) * 1000)
     
@@ -69,7 +70,7 @@ async def run_pipeline(
 
 
 @router.post("/compare")
-async def compare_pipelines(request: CompareRequest) -> Dict[str, Any]:
+async def compare_pipelines(request: CompareRequest) -> dict[str, Any]:
     try:
         pipeline_a_id = uuid.UUID(request.pipeline_a_id)
         pipeline_b_id = uuid.UUID(request.pipeline_b_id)

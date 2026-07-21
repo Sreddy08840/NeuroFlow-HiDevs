@@ -1,8 +1,7 @@
-import re
 import logging
-from typing import Optional, Tuple
-from backend.providers import NeuroFlowClient
+import re
 
+from backend.providers import NeuroFlowClient
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +16,7 @@ INJECTION_PATTERNS = [
     r"<\|system\|>"
 ]
 
-def check_prompt_injection_patterns(text: str) -> Optional[str]:
+def check_prompt_injection_patterns(text: str) -> str | None:
     for pattern in INJECTION_PATTERNS:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:

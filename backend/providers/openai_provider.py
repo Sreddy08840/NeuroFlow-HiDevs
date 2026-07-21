@@ -1,14 +1,14 @@
 import asyncio
 import time
-from typing import AsyncGenerator
-from openai import AsyncOpenAI
-from openai.types.chat import ChatCompletionChunk
-from openai import RateLimitError
-from .base import BaseLLMProvider, ChatMessage, GenerationResult
+from collections.abc import AsyncGenerator
+
 from config import settings
+from openai import AsyncOpenAI, RateLimitError
 from resilience.circuit_breaker import CircuitBreaker
-from resilience.timeout_manager import TimeoutManager
 from resilience.rate_limiter import RateLimiter
+from resilience.timeout_manager import TimeoutManager
+
+from .base import BaseLLMProvider, ChatMessage, GenerationResult
 
 
 class OpenAIProvider(BaseLLMProvider):
@@ -22,7 +22,7 @@ class OpenAIProvider(BaseLLMProvider):
         "gpt-4o-mini": 128000,
     }
 
-    def __init__(self, api_key: str = None, model: str = "gpt-4o-mini", embedding_model: str = "text-embedding-3-small"):
+    def __init__(self, api_key: str = None, model: str = "gpt-4o-mini", embedding_model: str = "text-embedding-3-small") -> None:
         self.client = AsyncOpenAI(api_key=api_key or settings.openai_api_key)
         self.model = model
         self.embedding_model = embedding_model

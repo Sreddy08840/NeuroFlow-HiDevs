@@ -1,4 +1,4 @@
-from prometheus_client import Counter, Histogram, Gauge, Summary
+from prometheus_client import Counter, Gauge, Histogram
 
 # Counters
 queries_total = Counter(

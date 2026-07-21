@@ -1,6 +1,9 @@
 import asyncio
-from typing import Optional, Any, Coroutine
+from collections.abc import Coroutine
+from typing import Any
+
 import redis.asyncio as redis
+
 from backend.config import settings
 
 
@@ -18,7 +21,7 @@ class TimeoutManager:
         "url_fetch": 15
     }
     
-    def __init__(self, redis_client: Optional[redis.Redis] = None):
+    def __init__(self, redis_client: redis.Redis | None = None) -> None:
         self.redis_client = redis_client or redis.from_url(settings.redis_url)
     
     async def execute_with_timeout(

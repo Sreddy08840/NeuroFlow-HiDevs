@@ -1,7 +1,5 @@
-import re
 import logging
-from typing import List, Dict, Any
-
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +10,7 @@ SECRET_PATTERNS = {
     "jwt_token": r"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+"
 }
 
-def detect_secrets(text: str) -> List[Dict[str, str]]:
+def detect_secrets(text: str) -> list[dict[str, str]]:
     detected = []
     for name, pattern in SECRET_PATTERNS.items():
         for match in re.finditer(pattern, text):
@@ -25,7 +23,7 @@ def detect_secrets(text: str) -> List[Dict[str, str]]:
     return detected
 
 
-def redact_secrets(text: str, detected: List[Dict[str, str]]) -> Tuple[str, List[str]]:
+def redact_secrets(text: str, detected: list[dict[str, str]]) -> Tuple[str, list[str]]:
     if not detected:
         return text, []
     

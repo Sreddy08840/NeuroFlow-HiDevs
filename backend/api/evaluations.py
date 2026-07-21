@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Request
-from fastapi.responses import StreamingResponse
-from pydantic import Field
-from sse_starlette.sse import EventSourceResponse, ServerSentEvent
 import asyncio
 import json
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
+
+from fastapi import APIRouter, Request
+from pydantic import Field
+from sse_starlette.sse import EventSourceResponse, ServerSentEvent
+
 from backend.db.pool import get_db_pool
 
 router = APIRouter(prefix="/evaluations", tags=["evaluations"])
@@ -69,5 +70,5 @@ async def stream_evaluations(request: Request) -> EventSourceResponse:
     return EventSourceResponse(event_generator())
 
 # Helper function to send new evaluation to SSE stream
-async def broadcast_evaluation(evaluation: dict):
+async def broadcast_evaluation(evaluation: dict) -> None:
     await evaluation_channel.put(evaluation)

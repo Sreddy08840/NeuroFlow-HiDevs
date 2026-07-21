@@ -1,11 +1,11 @@
 from datetime import datetime, timedelta
-from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from pydantic import BaseModel
-from backend.config import settings
 
+from backend.config import settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -18,7 +18,7 @@ class TokenResponse(BaseModel):
     expires_in: int = Field(..., description="Token expiration time in seconds")
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+def create_access_token(data: dict, expires_delta: timedelta | None = None):
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.utcnow() + expires_delta

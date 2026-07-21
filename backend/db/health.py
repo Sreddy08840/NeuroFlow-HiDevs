@@ -1,12 +1,11 @@
 import asyncio
-import asyncpg
+
 import redis.asyncio as redis
-from typing import Tuple, Dict
-from db.pool import get_db_pool
 from config import settings
+from db.pool import get_db_pool
 
 
-async def check_postgres() -> Dict:
+async def check_postgres() -> dict:
     try:
         start = asyncio.get_event_loop().time()
         pool = await get_db_pool()
@@ -18,7 +17,7 @@ async def check_postgres() -> Dict:
         return {"status": "critical", "latency_ms": None}
 
 
-async def check_redis() -> Dict:
+async def check_redis() -> dict:
     try:
         start = asyncio.get_event_loop().time()
         r = redis.from_url(settings.redis_url)
@@ -30,7 +29,7 @@ async def check_redis() -> Dict:
         return {"status": "critical", "latency_ms": None}
 
 
-async def check_mlflow() -> Dict:
+async def check_mlflow() -> dict:
     try:
         start = asyncio.get_event_loop().time()
         import mlflow
@@ -42,7 +41,7 @@ async def check_mlflow() -> Dict:
         return {"status": "degraded", "latency_ms": None}
 
 
-async def get_health_checks() -> Tuple[Dict, Dict, Dict]:
+async def get_health_checks() -> tuple[dict, dict, dict]:
     postgres = await check_postgres()
     redis = await check_redis()
     mlflow = await check_mlflow()

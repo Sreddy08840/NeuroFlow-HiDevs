@@ -1,9 +1,8 @@
-import re
-import bleach
 import ipaddress
-from typing import Optional
+import re
+
+import bleach
 from fastapi import HTTPException, UploadFile
-from backend.config import settings
 
 
 def strip_html(text: str) -> str:

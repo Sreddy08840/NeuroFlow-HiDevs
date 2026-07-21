@@ -1,16 +1,15 @@
-import asyncio
 import uuid
-from typing import Any, Dict
-from arq import create_pool
+from typing import Any
+
 from arq.connections import RedisSettings
+
 from backend.config import settings
-from backend.db.pool import create_db_pool, close_db_pool
 from backend.db.migrations import check_and_apply_migrations
+from backend.db.pool import close_db_pool, create_db_pool
 from evaluation.judge import EvaluationJudge
-import asyncpg
 
 
-async def process_evaluation_job(ctx: Dict[str, Any], run_id: str) -> None:
+async def process_evaluation_job(ctx: dict[str, Any], run_id: str) -> None:
     # Fetch query, answer, chunks, and pipeline_id from database
     pool = ctx["db_pool"]
     async with pool.acquire() as conn:
@@ -41,12 +40,12 @@ async def process_evaluation_job(ctx: Dict[str, Any], run_id: str) -> None:
     await judge.evaluate(uuid.UUID(run_id), query, answer, chunks, pipeline_id=pipeline_id)
 
 
-async def startup(ctx: Dict[str, Any]) -> None:
+async def startup(ctx: dict[str, Any]) -> None:
     ctx["db_pool"] = await create_db_pool()
     await check_and_apply_migrations()
 
 
-async def shutdown(ctx: Dict[str, Any]) -> None:
+async def shutdown(ctx: dict[str, Any]) -> None:
     await close_db_pool()
 
 

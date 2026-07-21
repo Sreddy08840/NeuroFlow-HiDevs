@@ -1,10 +1,11 @@
-import asyncio
 import logging
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from backend.db.pool import get_db_pool
+from fastapi import APIRouter, Depends
+
 from backend.api.auth import require_scope
+from backend.db.pool import get_db_pool
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -13,7 +14,7 @@ router = APIRouter(prefix="/admin", tags=["Admin"])
 scheduler = AsyncIOScheduler()
 
 
-async def run_data_retention():
+async def run_data_retention() -> None:
     """Daily job to clean up old data."""
     logger.info("Running data retention job")
     pool = await get_db_pool()
@@ -50,7 +51,7 @@ async def run_data_retention():
 
 
 @router.on_event("startup")
-async def start_scheduler():
+async def start_scheduler() -> None:
     """Start the scheduled jobs when the app starts."""
     if not scheduler.running:
         scheduler.add_job(run_data_retention, "cron", hour=2, minute=0)  # Run daily at 2 AM UTC
@@ -59,7 +60,7 @@ async def start_scheduler():
 
 
 @router.on_event("shutdown")
-async def stop_scheduler():
+async def stop_scheduler() -> None:
     """Stop the scheduler when the app shuts down."""
     if scheduler.running:
         scheduler.shutdown()

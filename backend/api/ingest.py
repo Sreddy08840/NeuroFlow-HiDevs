@@ -1,23 +1,23 @@
 import hashlib
+import logging
 import os
 import uuid
-import logging
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Request
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+
 from arq import create_pool
 from arq.connections import RedisSettings
 from asyncpg.pool import Pool
-from backend.db.pool import get_db_pool
-from pipelines.ingestion.pipeline import ingest_document_task
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
+
 from backend.config import settings
+from backend.db.pool import get_db_pool
 from backend.resilience.backpressure import BackpressureManager
 from backend.resilience.rate_limiter import RateLimiter
-from backend.api.auth import require_scope
 from backend.security.validators import (
-    validate_file_type,
+    validate_document_url,
     validate_file_magic_bytes,
-    validate_document_url
+    validate_file_type,
 )
 
 logger = logging.getLogger(__name__)

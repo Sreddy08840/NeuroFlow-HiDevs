@@ -1,11 +1,12 @@
-from typing import Optional
+
 import redis.asyncio as redis
+
 from backend.config import settings
 from backend.monitoring.metrics import queue_depth
 
 
 class BackpressureManager:
-    def __init__(self, redis_client: Optional[redis.Redis] = None):
+    def __init__(self, redis_client: redis.Redis | None = None) -> None:
         self.redis_client = redis_client or redis.from_url(settings.redis_url)
         self.queue_key = "queue:ingest"
         self.high_threshold = 50
